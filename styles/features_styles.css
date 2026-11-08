@@ -1,0 +1,63 @@
+/* CityVetHub Phase 3: module workspace, mapped to existing blue dashboard tokens. */
+.FEATURE_PANEL:has(.CV_WORKSPACE),.FEATURE_PANEL:has(.CV_LOADING){display:block;min-height:0;padding:0;background:transparent;border:0;border-radius:0}
+.CV_WORKSPACE{min-width:0;color:var(--ink)}
+.CV_HEAD{display:flex;align-items:start;justify-content:space-between;gap:18px;margin:0 0 22px}
+.CV_HEAD h2{font-size:30px;letter-spacing:-.9px;margin:7px 0;font-weight:650}
+.CV_HEAD p{font-size:13px;color:var(--sub);max-width:620px;line-height:1.6}
+.CV_KICKER{font-size:11px;font-weight:750;letter-spacing:1.5px;color:#3478f6;text-transform:uppercase}
+.CV_ACTION_BAR{display:flex;gap:8px;flex-wrap:wrap}
+.CV_BUTTON{display:inline-flex;justify-content:center;align-items:center;gap:8px;white-space:nowrap;transition:background .2s,opacity .2s;cursor:pointer}
+.CV_BUTTON:disabled{opacity:.45;cursor:not-allowed}
+.CV_SOFT{padding:10px 13px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font-size:12px;font-weight:650}
+.CV_SOFT:hover{border-color:#8db5ff;background:#eaf2ff;color:#225bb5}
+.CV_STATS{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.CV_STAT{background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:21px;display:flex;flex-direction:column;gap:9px}
+.CV_STAT span{font-size:12px;color:var(--sub)}.CV_STAT strong{font-size:29px;letter-spacing:-.8px}
+.CV_TABLE_WRAP{background:var(--surface);border:1px solid var(--line);border-radius:17px;overflow:auto}
+.CV_TABLE{width:100%;border-collapse:collapse;text-align:left;min-width:600px;font-size:12px}
+.CV_TABLE th{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--sub);background:var(--surface-2);padding:16px}
+.CV_TABLE td{padding:16px;border-top:1px solid var(--line);line-height:1.5;vertical-align:middle;max-width:290px;overflow-wrap:anywhere}
+.CV_TABLE .CV_SOFT{padding:7px 9px;font-size:10px;margin:2px}
+.CV_PILL{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;background:#eaf2ff;color:#2756a9;font-size:10px;font-weight:800;text-transform:capitalize}
+.CV_PILL.CV_pending,.CV_PILL.CV_medium{background:#fff2de;color:#926009}
+.CV_PILL.CV_rejected,.CV_PILL.CV_high,.CV_PILL.CV_inactive{background:#fee8e5;color:#9b322c}
+.CV_PILL.CV_approved,.CV_PILL.CV_confirmed,.CV_PILL.CV_active,.CV_PILL.CV_low,.CV_PILL.CV_vaccination{background:#e2f7e8;color:#126d43}
+.CV_CARDS{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.CV_RECORD{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.CV_RECORD h3{font-size:18px;letter-spacing:-.45px}.CV_RECORD p{font-size:12px;color:var(--sub);line-height:1.6;overflow-wrap:anywhere}
+.CV_RECORD_TOP,.CV_RECORD_BOTTOM{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.CV_RECORD_BOTTOM{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;font-size:11px;color:var(--sub)}
+.CV_SECTION{margin-top:28px}.CV_SECTION h3{font-size:20px;margin-bottom:14px;letter-spacing:-.4px}
+.CV_EMPTY{text-align:center;color:var(--sub);background:var(--surface);padding:30px;border:1px dashed var(--line);border-radius:14px;grid-column:1/-1}
+.CV_EMPTY i{font-size:23px;margin-bottom:9px}.CV_EMPTY p{font-size:12px}
+.CV_HINT,.CV_LEGEND{font-size:11px;color:var(--sub);line-height:1.6;margin:12px 0}
+.CV_MAP{height:425px;max-width:100%;border-radius:17px;border:1px solid var(--line);overflow:hidden;background:#e4effb;isolation:isolate;z-index:0}
+.CV_MAP_TOOLS{display:flex;align-items:center;flex-wrap:wrap;gap:15px;padding:13px 16px;margin-bottom:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--sub);font-size:11px}
+.CV_MAP_TOOLS span{margin-right:auto}.CV_MAP_TOOLS label{display:flex;align-items:center;gap:5px;color:var(--ink);cursor:pointer}
+.CV_COLD,.CV_HOT{display:inline-block;width:17px;height:10px;border-radius:4px;vertical-align:middle;margin:0 4px}.CV_COLD{background:#2e97fd}.CV_HOT{background:#ee5127}
+.CV_REPORT_GRID{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.CV_REPORT_ROW{display:flex;justify-content:space-between;align-items:center;background:var(--surface);padding:19px;border:1px solid var(--line);border-radius:12px;font-size:12px;color:var(--sub)}.CV_REPORT_ROW strong{font-size:24px;color:var(--ink)}
+.CV_MESSAGE,.CV_ERROR{padding:13px 15px;margin-bottom:18px;background:#fff0e9;border:1px solid #ffdbc8;border-radius:12px;color:#a93e30;font-size:12px;line-height:1.6}
+.CV_MESSAGE.is-success{background:#ecf8f0;border-color:#c8ecd3;color:#236e47}
+.CV_FILTER_BOX{display:flex;align-items:end;flex-wrap:wrap;gap:11px;background:var(--surface);padding:14px;border:1px solid var(--line);border-radius:13px;margin:0 0 16px}
+.CV_FILTER_BOX label{display:flex;flex-direction:column;gap:5px;flex:1;min-width:145px;font-size:11px;color:var(--sub)}
+.CV_FILTER_BOX input,.CV_FILTER_BOX select{border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);height:40px;padding:0 10px}
+.CV_LOADING{padding:40px;text-align:center;color:var(--sub);font-size:13px}
+.CV_MODAL{position:fixed;inset:0;background:#101f35a8;display:flex;align-items:center;justify-content:center;padding:20px;z-index:4000;overflow-y:auto}
+.CV_MODAL_CARD{width:100%;max-width:640px;max-height:90vh;overflow-y:auto;background:var(--surface);color:var(--ink);border-radius:20px;box-shadow:0 25px 75px #0004;padding:25px}
+.CV_MODAL_HEAD{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:20px;gap:10px}
+.CV_MODAL_HEAD h3{font-size:20px;letter-spacing:-.5px}.CV_MODAL_HEAD button{background:var(--surface-2);border:0;padding:10px 13px;border-radius:10px;color:var(--ink)}
+.CV_FORM{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.CV_FORM label{display:flex;flex-direction:column;gap:7px;color:var(--sub);font-size:12px;font-weight:650}
+.CV_FORM input,.CV_FORM select,.CV_FORM textarea{color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;min-width:0;width:100%}
+.CV_FORM input:focus,.CV_FORM select:focus,.CV_FORM textarea:focus{outline:2px solid #3478f655;border-color:#3478f6}
+.CV_WIDE{grid-column:1/-1}.CV_FORM_FOOT{grid-column:1/-1;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--line);padding-top:18px}
+.CV_MODAL_ERROR{grid-column:1/-1;color:#a73732;font-size:12px}.CV_QR{text-align:center;max-width:430px}.CV_QR #cvQR{margin:0 auto;display:grid;place-items:center;min-height:200px}
+.dark-theme .CV_SOFT:hover{background:#263955}.dark-theme .CV_ERROR,.dark-theme .CV_MESSAGE{background:#4b2d2d;border-color:#75434b;color:#ffbdbd}.dark-theme .CV_MESSAGE.is-success{background:#234837;color:#b2eed4}
+@media(max-width:820px){.CV_HEAD{flex-direction:column}.CV_CARDS,.CV_REPORT_GRID{grid-template-columns:1fr}}
+@media(max-width:570px){.CV_STATS{gap:7px}.CV_STAT{padding:13px}.CV_STAT strong{font-size:22px}.CV_HEAD h2{font-size:25px}.CV_FORM{grid-template-columns:1fr}.CV_FORM_FOOT,.CV_WIDE{grid-column:auto}.CV_MAP{height:320px}.CV_MODAL_CARD{padding:17px}}
+/* Explicit stretch keeps dynamic modules full-width inside the original grid shell. */
+#featurePanel:has(.CV_WORKSPACE){place-items:normal;justify-items:stretch;align-items:stretch}
+#featurePanel .CV_WORKSPACE{width:100%;max-width:none;margin:0}
+#dashboardMetrics.CV_STATS{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:10px}
+@media(max-width:900px){#dashboardMetrics.CV_STATS{grid-template-columns:repeat(2,minmax(0,1fr))}}

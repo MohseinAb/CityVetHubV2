@@ -1,0 +1,65 @@
+:root{--accent:#3478f6;--accent-hover:#215fdb;--ink:#252525;--muted:#7f7f7f;--line:#e9e9e9}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.AUTH_BODY{min-height:100vh;background:#e9e9e9;color:var(--ink);padding:24px;display:grid;place-items:center}
+.AUTH_WRAPPER{width:min(1180px,100%);min-height:min(790px,calc(100vh - 48px));border-radius:28px;background:white;box-shadow:0 24px 90px rgba(23,24,26,.11);display:grid;grid-template-columns:1fr 1fr;overflow:hidden}
+.AUTH_SHOWCASE{background:radial-gradient(circle at 85% 85%,rgba(194,220,255,.35),transparent 31%),linear-gradient(155deg,#5b9cff 0%,#2563eb 51%,#164bbb 100%);color:white;position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:40px;padding:44px 50px;overflow:hidden;isolation:isolate}
+.AUTH_SHOWCASE:after{content:'';position:absolute;width:475px;height:475px;border:85px solid rgba(255,255,255,.075);border-radius:48%;right:-220px;bottom:-220px;transform:rotate(30deg);z-index:-1}
+.AUTH_SHOWCASE:before{content:'';position:absolute;width:285px;height:285px;border:56px solid rgba(255,255,255,.05);border-radius:45%;left:-130px;top:32%;transform:rotate(30deg);z-index:-1}
+.AUTH_BRAND,.AUTH_SMALL_LOGO{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:-.5px}
+.AUTH_BRAND{font-size:23px}
+.AUTH_BRAND img{height:44px;width:44px;object-fit:contain;background:#fff;border-radius:13px;padding:5px}
+.AUTH_SHOWCASE_COPY{max-width:470px}
+.AUTH_EYEBROW{font-size:11px;font-weight:800;letter-spacing:1.65px;text-transform:uppercase;display:inline-flex;align-items:center;gap:8px}
+.AUTH_SHOWCASE_COPY h1{font-size:clamp(44px,5.4vw,72px);line-height:1.09;letter-spacing:-3px;margin:24px 0 20px;font-weight:700}
+.AUTH_SHOWCASE_COPY h1 em{font-style:normal;color:#cfe0ff}
+.AUTH_SHOWCASE_COPY>p{font-size:16px;color:rgba(255,255,255,.87);line-height:1.75;max-width:375px}
+.AUTH_SHOWCASE_POINTS{display:flex;gap:10px;flex-wrap:wrap;margin-top:37px}
+.AUTH_SHOWCASE_POINTS span{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.2);padding:10px 12px;border-radius:22px;font-size:12px}
+.AUTH_SHOWCASE>small{font-size:12px;color:rgba(255,255,255,.65)}
+.AUTH_PANEL{display:flex;align-items:center;justify-content:center;padding:54px 48px;background:#fff}
+.AUTH_FORM_WRAP{width:100%;max-width:390px}
+.AUTH_SMALL_LOGO{display:none;color:var(--ink);margin-bottom:30px;font-size:19px}
+.AUTH_SMALL_LOGO img{width:34px;height:34px}
+.AUTH_KICKER{color:var(--accent);font-size:11px;font-weight:800;letter-spacing:1.8px;margin-bottom:13px}
+.AUTH_FORM_WRAP h2{font-size:32px;line-height:1.14;letter-spacing:-1.25px;font-weight:700}
+.AUTH_SUBTITLE{color:var(--muted);font-size:14px;line-height:1.7;margin:13px 0 30px}
+.AUTH_FORM_WRAP form{display:flex;flex-direction:column;gap:0}
+.AUTH_FORM_WRAP label:not(.AUTH_AGREEMENT){display:block;font-size:12px;font-weight:700;margin:0 0 9px}
+.AUTH_INPUT_WRAP{width:100%;height:52px;border:1px solid #e9e9e9;border-radius:13px;background:#f8f8f8;display:flex;align-items:center;gap:11px;padding:0 14px;margin:0 0 19px;transition:border .2s,box-shadow .2s}
+.AUTH_INPUT_WRAP:focus-within{border-color:#8bb6ff;box-shadow:0 0 0 4px rgba(52,120,246,.08);background:#fff}
+.AUTH_INPUT_WRAP>i:first-child{font-size:15px;color:#aaa;width:18px;text-align:center}
+.AUTH_INPUT_WRAP>input,.AUTH_INPUT_WRAP>select{flex:1;width:100%;min-width:0;height:100%;border:0;background:transparent;outline:0;color:#353535;font-size:14px}
+.AUTH_INPUT_WRAP input::placeholder{color:#a2a2a2}
+.AUTH_INPUT_WRAP select{appearance:none;cursor:pointer;padding-right:6px}
+.AUTH_CHEVRON{color:#999!important;font-size:11px!important}
+.AUTH_HINT{font-size:11px;color:#8b8b8b;line-height:1.5;margin:-13px 0 20px;padding-left:3px}
+.PASSWORD_TOGGLE{background:none;border:0;padding:8px;color:#909090;font-size:15px}
+.PASSWORD_TOGGLE:hover{color:var(--accent)}
+.AUTH_SUBMIT{display:flex;gap:10px;align-items:center;justify-content:center;width:100%;padding:15px 20px;border:0;border-radius:13px;background:var(--accent);color:white;font-weight:700;font-size:14px;margin-top:8px;transition:background .2s,transform .2s}
+.AUTH_SUBMIT:hover{background:var(--accent-hover);transform:translateY(-1px)}
+.AUTH_SUBMIT:disabled{opacity:.58;cursor:wait;transform:none}
+.AUTH_FOOTER{font-size:13px;text-align:center;color:#777;margin-top:24px}
+.AUTH_FOOTER a{font-weight:700;color:var(--accent)}
+.AUTH_FOOTER a:hover{text-decoration:underline}
+.AUTH_FOOTNOTE{margin-top:24px;display:flex;align-items:center;justify-content:center;gap:8px;color:#aaa;font-size:11px}
+.AUTH_NOTICE{font-size:12px;line-height:1.5;padding:12px 14px;border-radius:10px;margin:0 0 20px}
+.AUTH_NOTICE.is-error{background:#eaf2ff;color:#af3424;border:1px solid #f3d6d3}
+.AUTH_NOTICE.is-success{background:#eaf9f2;color:#14724b;border:1px solid #bdebd5}
+.AUTH_AGREEMENT{display:flex;gap:10px;align-items:flex-start;margin-bottom:18px;font-size:12px;line-height:1.65;color:#777;cursor:pointer}
+.AUTH_AGREEMENT input{flex:none;margin-top:3px;accent-color:var(--accent);width:15px;height:15px}
+.PENDING_VIEW{width:min(470px,100%);background:white;border-radius:24px;text-align:center;box-shadow:0 30px 80px #0001;padding:45px}
+.PENDING_LOGO{width:48px;height:48px;object-fit:contain;display:block;margin:0 auto 24px}
+.PENDING_VIEW .AUTH_EYEBROW{color:var(--accent)}
+.PENDING_ICON{height:86px;width:86px;background:#eaf2ff;color:var(--accent);border-radius:50%;display:grid;place-items:center;font-size:32px;margin:26px auto 17px}
+.PENDING_VIEW h1{font-size:31px;letter-spacing:-1px}
+.PENDING_VIEW>p{color:#777;font-size:14px;line-height:1.7;margin:14px 0 18px}
+.PENDING_VIEW>p strong{color:#333;overflow-wrap:anywhere}
+.PENDING_NOTICE{background:#f8f8f8;border:1px solid #eee;padding:14px;border-radius:12px;color:#777;font-size:12px;line-height:1.5}
+.PENDING_LOGOUT{background:none;border:0;margin-top:24px;color:#666;font-size:13px;font-weight:700}
+.PENDING_LOGOUT:hover{color:var(--accent)}
+@media(max-width:900px){.AUTH_SHOWCASE{padding:35px}.AUTH_PANEL{padding:42px 36px}.AUTH_SHOWCASE_COPY h1{font-size:48px}}
+@media(max-width:740px){.AUTH_BODY{padding:12px}.AUTH_WRAPPER{grid-template-columns:1fr;min-height:calc(100vh - 24px)}.AUTH_SHOWCASE{display:none}.AUTH_PANEL{padding:40px 30px}.AUTH_SMALL_LOGO{display:flex}.AUTH_FORM_WRAP{max-width:430px}}
+@media(max-width:430px){.AUTH_FORM_WRAP h2{font-size:28px}.AUTH_PANEL{padding:30px 22px}.PENDING_VIEW{padding:30px 20px}}

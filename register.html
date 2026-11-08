@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Account — CityVetHub</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <link rel="stylesheet" href="./styles/main_styles.css?v=4.13.0">
+    <link rel="stylesheet" href="./styles/auth_styles.css?v=4.13.0">
+    <script src="https://cdn.jsdelivr.net/npm/appwrite@29.0.0" defer></script>
+    <script src="./scripts/config.js?v=4.13.0" defer></script><script src="./scripts/appwrite.js?v=4.13.0" defer></script><script src="./scripts/auth.js?v=4.13.0" defer></script>
+</head>
+<body class="AUTH_BODY" data-mode="register">
+    <main class="AUTH_WRAPPER">
+        <section class="AUTH_SHOWCASE">
+            <div class="AUTH_BRAND"><img src="./assets/logo_main.png" alt="CityVetHub logo"><span>CityVetHub</span></div>
+            <div class="AUTH_SHOWCASE_COPY"><span class="AUTH_EYEBROW"><i class="fa-solid fa-paw"></i> A community built around animals</span><h1>Every pet<br><em>deserves care.</em></h1><p>Connect with the city veterinary network, keep your pet records organized, and support responsible adoption.</p><div class="AUTH_SHOWCASE_POINTS"><span><i class="fa-solid fa-id-card"></i> Pet identity</span><span><i class="fa-solid fa-syringe"></i> Vaccinations</span><span><i class="fa-solid fa-heart"></i> Adoption</span></div></div>
+            <small>CityVetHub · Iligan City Veterinary Office</small>
+        </section>
+        <section class="AUTH_PANEL">
+            <div class="AUTH_FORM_WRAP">
+                <div class="AUTH_SMALL_LOGO"><img src="./assets/logo_main.png" alt="" aria-hidden="true"> CityVetHub</div>
+                <div class="AUTH_KICKER">GET STARTED</div><h2>Create your account</h2><p class="AUTH_SUBTITLE">Register as a pet owner or request field officer access.</p>
+                <div id="authNotice" class="AUTH_NOTICE" role="alert" hidden></div>
+                <form id="authForm" novalidate>
+                    <label for="role">Account type</label><div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-users"></i><select id="role" name="role" required><option value="owner">Pet Owner</option><option value="officer">Field Officer (requires approval)</option></select><i class="fa-solid fa-chevron-down AUTH_CHEVRON"></i></div>
+                    <p id="roleHelper" class="AUTH_HINT"></p>
+                    <label for="fullName">Full name</label><div class="AUTH_INPUT_WRAP"><i class="fa-regular fa-user"></i><input id="fullName" type="text" maxlength="128" autocomplete="name" placeholder="Your full name" required></div>
+                    <label for="email">Email address</label><div class="AUTH_INPUT_WRAP"><i class="fa-regular fa-envelope"></i><input id="email" type="email" autocomplete="email" placeholder="name@example.com" required></div>
+                    <label for="password">Password</label><div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-lock"></i><input id="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="At least 8 characters" required><button class="PASSWORD_TOGGLE" type="button" data-toggle-password="password" aria-label="Show password"><i class="fa-regular fa-eye"></i></button></div>
+                    <label for="confirmPassword">Confirm password</label><div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-lock"></i><input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Repeat your password" required><button class="PASSWORD_TOGGLE" type="button" data-toggle-password="confirmPassword" aria-label="Show password"><i class="fa-regular fa-eye"></i></button></div>
+                    <label class="AUTH_AGREEMENT"><input id="agreement" type="checkbox" required><span>I understand that my information will be used for CityVetHub account and pet-service records. Staff access is subject to verification.</span></label>
+                    <button class="AUTH_SUBMIT" id="submitAuth" type="submit">Create account <i class="fa-solid fa-arrow-right"></i></button>
+                </form>
+                <p class="AUTH_FOOTER">Already have an account? <a href="./login.html">Sign in</a></p>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

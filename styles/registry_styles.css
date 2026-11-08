@@ -1,0 +1,34 @@
+/* Phase 2 registry, designed to match the CityVetHub blue dashboard */
+.REGISTRY_PANEL{display:block;min-width:0}
+.REGISTRY_TOP{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:22px}
+.REGISTRY_KICKER{font-size:11px;color:#3478f6;letter-spacing:1.5px;font-weight:700}
+.REGISTRY_TOP h2{font-size:31px;letter-spacing:-1px;margin:8px 0}
+.REGISTRY_TOP p{font-size:13px;color:var(--sub)}
+.REGISTRY_ACTIONS{display:flex;gap:9px;flex-wrap:wrap}
+.REGISTRY_BTN_SECONDARY{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:11px;padding:12px 15px;font-weight:700;font-size:12px}
+.REGISTRY_ACTIONS .PRIMARY_ACTION{white-space:nowrap}
+.REGISTRY_STATS{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:20px 0}
+.REGISTRY_STAT{padding:21px 24px;border:1px solid var(--line);border-radius:16px;background:var(--surface);display:flex;flex-direction:column;gap:8px}
+.REGISTRY_STAT span{font-size:12px;color:var(--sub)}
+.REGISTRY_STAT strong{font-size:30px;letter-spacing:-1px}
+.REGISTRY_NOTICE{padding:13px 15px;border-radius:10px;font-size:12px;margin:10px 0;background:#eaf2ff;color:#1f58b7;line-height:1.5}
+.REGISTRY_NOTICE[data-kind=error]{background:#fff2ef;color:#9f352b}.REGISTRY_NOTICE[data-kind=success]{background:#eaf8f1;color:#18734b}
+.REGISTRY_TABLE_WRAP{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.REGISTRY_TABLE{width:100%;border-collapse:collapse;text-align:left;min-width:720px;font-size:12px}
+.REGISTRY_TABLE th{padding:17px 18px;background:var(--surface-2);color:var(--sub);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.REGISTRY_TABLE td{padding:19px 18px;border-top:1px solid var(--line);color:var(--ink)}
+.PET_NAME{font-weight:700;font-size:13px;display:block}.PET_META{display:block;color:var(--sub);font-size:11px;margin-top:6px}
+.PET_STATUS{display:inline-flex;border-radius:100px;font-size:10px;letter-spacing:.4px;padding:6px 10px;font-weight:700;background:#edf3ff;color:#3162a3}
+.PET_STATUS.status-pending{background:#fff3dd;color:#9c6a0c}.PET_STATUS.status-approved{background:#e6f7ee;color:#147548}.PET_STATUS.status-rejected{background:#fce9e7;color:#a3352c}
+.PET_ACTIONS{display:flex;gap:6px;align-items:center}.PET_ACTION{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--ink)}
+.PET_ACTION.is-approve{background:#e5f7ed;color:#126e44;border-color:#d1eede}.PET_ACTION.is-reject{background:#fff0ed;color:#a13c33;border-color:#f9dad5}.PET_ACTION.is-passport{background:#eaf2ff;color:#245bcc;border-color:#ccdeff}
+.REGISTRY_FOOTNOTE{font-size:11px;color:var(--sub);margin:14px 0}
+.REGISTRY_FORM_OVERLAY{position:fixed;inset:0;z-index:99;background:#17294ba6;display:grid;place-items:center;padding:20px;overflow:auto}
+.REGISTRY_DIALOG{background:#fff;color:#2a2a2a;width:min(570px,100%);padding:26px;border-radius:20px;box-shadow:0 30px 80px #0a1e3650;max-height:95vh;overflow:auto}
+.REGISTRY_DIALOG_HEADER{display:flex;align-items:center;justify-content:space-between;gap:20px}.REGISTRY_DIALOG h3{font-size:23px}.REGISTRY_DIALOG_HEADER button{border:0;background:#f2f5fa;border-radius:50%;width:35px;height:35px}
+.REGISTRY_DIALOG_DESC{font-size:13px;color:#818797;margin:14px 0 22px;line-height:1.6}.REGISTRY_FORM{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.REGISTRY_FORM label{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:700}.REGISTRY_FORM input,.REGISTRY_FORM select{border:1px solid #e0e5ee;background:#f9fafc;color:#242424;min-width:0;border-radius:10px;padding:12px;font-size:13px;outline:0}.REGISTRY_FORM input:focus,.REGISTRY_FORM select:focus{border-color:#3478f6}
+.REGISTRY_FORM_NOTE{font-size:11px;line-height:1.5;color:#9199a8;grid-column:1/-1}.REGISTRY_FORM .PRIMARY_ACTION{grid-column:1/-1}
+.QR_CONTAINER{display:grid;place-items:center;padding:30px;background:#f8faff;border-radius:14px;margin:16px auto 20px;min-height:260px}
+@media(max-width:700px){.REGISTRY_TOP{align-items:flex-start;flex-direction:column}.REGISTRY_STATS{gap:7px}.REGISTRY_STAT{padding:15px}.REGISTRY_STAT strong{font-size:23px}.REGISTRY_FORM{grid-template-columns:1fr}}
+@media print{body *{visibility:hidden!important}#passportDialog,#passportDialog *{visibility:visible!important}#passportDialog{position:static;background:white}#passportDialog .REGISTRY_DIALOG{box-shadow:none}#closePassportDialog,#printPassport{display:none!important}}

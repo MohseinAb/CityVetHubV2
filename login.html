@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In — CityVetHub</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <link rel="stylesheet" href="./styles/main_styles.css?v=4.13.0">
+    <link rel="stylesheet" href="./styles/auth_styles.css?v=4.13.0">
+    <script src="https://cdn.jsdelivr.net/npm/appwrite@29.0.0" defer></script>
+    <script src="./scripts/config.js?v=4.13.0" defer></script>
+    <script src="./scripts/appwrite.js?v=4.13.0" defer></script>
+    <script src="./scripts/auth.js?v=4.13.0" defer></script>
+</head>
+<body class="AUTH_BODY" data-mode="login">
+    <main class="AUTH_WRAPPER">
+        <section class="AUTH_SHOWCASE">
+            <div class="AUTH_BRAND"><img src="./assets/logo_main.png" alt="CityVetHub logo"><span>CityVetHub</span></div>
+            <div class="AUTH_SHOWCASE_COPY">
+                <span class="AUTH_EYEBROW"><i class="fa-solid fa-shield-heart"></i> Connected community care</span>
+                <h1>Better care.<br><em>One community.</em></h1>
+                <p>A unified home for pet registration, veterinary services, adoption, and public health monitoring.</p>
+                <div class="AUTH_SHOWCASE_POINTS"><span><i class="fa-solid fa-paw"></i> Pet records</span><span><i class="fa-solid fa-heart-pulse"></i> Animal wellness</span><span><i class="fa-solid fa-map-location-dot"></i> City surveillance</span></div>
+            </div>
+            <small>CityVetHub · Iligan City Veterinary Office</small>
+        </section>
+        <section class="AUTH_PANEL">
+            <div class="AUTH_FORM_WRAP">
+                <div class="AUTH_SMALL_LOGO"><img src="./assets/logo_main.png" alt="" aria-hidden="true"> CityVetHub</div>
+                <div class="AUTH_KICKER">WELCOME BACK</div>
+                <h2>Sign in to your account</h2>
+                <p class="AUTH_SUBTITLE">Choose your role and enter your credentials to continue.</p>
+                <div id="authNotice" class="AUTH_NOTICE" role="alert" hidden></div>
+                <form id="authForm" novalidate>
+                    <label for="role">Sign in as</label>
+                    <div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-users"></i><select id="role" name="role" required>
+                        <option value="owner">Pet Owner</option><option value="officer">Field Officer</option><option value="admin">Administrator</option>
+                    </select><i class="fa-solid fa-chevron-down AUTH_CHEVRON"></i></div>
+                    <p id="roleHelper" class="AUTH_HINT"></p>
+                    <label for="email">Email address</label>
+                    <div class="AUTH_INPUT_WRAP"><i class="fa-regular fa-envelope"></i><input id="email" type="email" name="email" autocomplete="username" placeholder="name@example.com" required></div>
+                    <label for="password">Password</label>
+                    <div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-lock"></i><input id="password" type="password" name="password" autocomplete="current-password" placeholder="Enter your password" required><button class="PASSWORD_TOGGLE" type="button" data-toggle-password="password" aria-label="Show password"><i class="fa-regular fa-eye"></i></button></div>
+                    <button class="AUTH_SUBMIT" id="submitAuth" type="submit">Sign in <i class="fa-solid fa-arrow-right"></i></button>
+                </form>
+                <p class="AUTH_FOOTER">New to CityVetHub? <a href="./register.html">Create an account</a></p>
+                <p class="AUTH_FOOTNOTE"><i class="fa-solid fa-lock"></i> Your session is managed securely by Appwrite.</p>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

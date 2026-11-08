@@ -1,0 +1,49 @@
+.BUTTON_TYPE1
+{
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: rgb(255,255,255);
+    background-color: rgb(52, 120, 246);
+    width: 45px;
+    height: 45px;
+    border-radius: 10px;
+}
+
+.BUTTON_TYPE1:hover
+{
+    background-color: rgb(33, 95, 219);
+}
+
+.BUTTON_TYPE2
+{
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: rgb(150, 150, 150);
+    background-color: rgb(255, 255, 255);
+    width: 45px;
+    height: 45px;
+    border-radius: 100px;
+}
+
+.BUTTON_TYPE2:hover
+{
+    background-color: rgb(240, 240, 240);
+}
+
+.BUTTON_TYPE_LOGO
+{
+    display: block;
+    width: 45px;
+    height: 45px;
+    background-image: url("../assets/logo_main.png");
+    background-size: 135%;
+    background-repeat: no-repeat;
+    background-position: center;
+    font-size: 0;
+}

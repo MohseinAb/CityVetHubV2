@@ -1,0 +1,33 @@
+.SEARCH_PANEL
+{
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    height: 45px;
+    padding: 0 15px;
+    background-color: rgb(255,255,255);
+    border-radius: 100px;
+}
+
+.SEARCH_ICON
+{
+    font-size: 15px;
+    color: rgb(150, 150, 150);
+}
+
+.SEARCH_INPUT
+{
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 15px;
+    color: rgb(150, 150, 150);
+}
+
+.SEARCH_INPUT::placeholder
+{
+    color: rgb(150, 150, 150);
+}
