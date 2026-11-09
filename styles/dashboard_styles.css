@@ -96,3 +96,103 @@ button{cursor:pointer}
 @media(max-width:900px){.OVERVIEW_GRID{grid-template-columns:1fr}.WELCOME_CARD{grid-column:auto}.INFO_CARD{min-height:225px}.MODULE_GRID{grid-template-columns:repeat(2,1fr)}.USER_PANEL{width:auto;min-width:auto}.HEADER_PILL{display:none}}
 @media(max-width:620px){.NAV_CONTAINER{width:62px;min-width:62px}.NAV_HEADER{padding:9px;height:64px}.NAV_BUTTONS{padding:9px;gap:8px}.NAV_BUTTONS_CONTROL{padding:9px;height:64px}.BUTTON_TYPE1,.BUTTON_TYPE2{width:44px;height:44px}.BODY_HEADER{padding:10px 14px;height:70px;min-height:70px}.USER_PANEL{padding-right:0}.USER_INFO{display:none}.SEARCH_PANEL{min-width:90px}.BUTTONSS_PANEL{gap:7px}.DASHBOARD_CONTENT{padding:22px 16px 50px}.DASHBOARD_INTRO{align-items:start;flex-direction:column}.OVERVIEW_GRID{gap:12px}.MODULE_GRID{grid-template-columns:1fr 1fr;gap:10px}.MODULE_CARD{padding:13px;min-height:150px}.MODULE_CARD strong{font-size:12px}.MODULE_CARD>span:last-child{font-size:10px}}
 @media(max-width:410px){.MODULE_GRID{grid-template-columns:1fr}.PROFILE_PICTURE{height:38px;width:38px}.BODY_HEADER{gap:8px}.SEARCH_PANEL{padding:0 10px}}
+
+/* --- Owner Dashboard Clean Layout Styles --- */
+.card-panel {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 2.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    border: 1px solid #E5E7EB;
+    margin-bottom: 1.5rem;
+}
+
+.OWNER_HERO_CARD h1 {
+    font-size: 2.6rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+    font-weight: 700;
+    letter-spacing: -1px;
+}
+
+.OWNER_HERO_CARD p {
+    font-size: 1.05rem;
+    color: #6B7280;
+    margin-bottom: 1.5rem;
+}
+
+.HERO_ACTIONS {
+    display: flex;
+    gap: 1rem;
+}
+
+.BUTTON_OUTLINE {
+    background: transparent;
+    border: 1.5px solid #3478f6;
+    color: #3478f6;
+    padding: 0.75rem 1.4rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: 0.2s;
+}
+.BUTTON_OUTLINE:hover { background: #f0fdf4; }
+
+.BUTTON_DANGER {
+    background: #DC2626;
+    color: white;
+    padding: 0.75rem 1.4rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.BUTTON_DANGER:hover { background: #B91C1C; }
+
+.OWNER_ALERT_BANNER {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+}
+
+.ALERT_TEXT h3 { margin: 0 0 0.35rem 0; font-size: 1.15rem; font-weight: 600; color: #111827; display: flex; align-items: center; gap: 0.5rem; }
+.ALERT_TEXT p { margin: 0; color: #6B7280; font-size: 0.95rem; }
+
+.OWNER_DASHBOARD_GRID {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.CARD_HEADER {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #E5E7EB;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+.CARD_HEADER h3 { margin: 0; font-size: 1.1rem; font-weight: 600; color: #111827; }
+.LINK_PRIMARY { color: #3478f6; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+
+.LIST_ITEM { display: flex; justify-content: space-between; padding-bottom: 1rem; border-bottom: 1px solid #F3F4F6; }
+.LIST_ITEM:last-child { border-bottom: none; padding-bottom: 0; }
+.LIST_ITEM h4 { margin: 0 0 0.25rem 0; font-size: 1rem; font-weight: 600; color: #111827; }
+
+.SUB_TEXT, .AUTHOR_TEXT, .DATE_TEXT { margin: 0; font-size: 0.85rem; color: #6B7280; }
+.EMPTY_STATE { text-align: center; color: #6B7280; padding: 3rem 0; font-size: 0.95rem; }
+
+/* Dark Theme overrides for Owner UI */
+body.dark-theme .card-panel { background: #1F2937; border-color: #374151; }
+body.dark-theme .OWNER_HERO_CARD h1, body.dark-theme .ALERT_TEXT h3, body.dark-theme .CARD_HEADER h3, body.dark-theme .LIST_ITEM h4 { color: #F9FAFB; }
+body.dark-theme .BUTTON_OUTLINE { border-color: #527ab7; color: #3478f6; }
+body.dark-theme .BUTTON_OUTLINE:hover { background: rgba(82,183,136,0.1); }
+

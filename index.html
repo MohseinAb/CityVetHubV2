@@ -36,6 +36,65 @@
                     <div class="SECTION_HEAD"><div><h2>Explore CityVetHub</h2><p>Choose a module to view records, submit requests or manage CVO workflows.</p></div><span>WORKSPACE</span></div>
                     <div id="moduleGrid" class="MODULE_GRID"></div>
                 </section>
+                <!-- New Pet Owner Dashboard View -->
+                <section id="ownerOverviewPanel" hidden>
+                    <!-- Hero Section -->
+                    <div class="OWNER_HERO_CARD card-panel">
+                        <h1>City Vet Hub</h1>
+                        <p>Integrated animal registration, disease surveillance, and adoption services for Iligan City.</p>
+                        <div class="HERO_ACTIONS">
+                            <button class="BUTTON_TYPE1" onclick="document.querySelector('[data-module=\'adoptions\']').click()">
+                                <i class="fa-solid fa-heart"></i> Browse Adoptions
+                            </button>
+                            <button class="BUTTON_OUTLINE" onclick="document.querySelector('[data-module=\'surveillance\']').click()">
+                                <i class="fa-regular fa-comment-dots"></i> Community Feed
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alert / Report Banner -->
+                    <div class="OWNER_ALERT_BANNER card-panel">
+                        <div class="ALERT_TEXT">
+                            <h3><i class="fa-solid fa-bullhorn" style="color: #DC2626;"></i> Notice Unusual Animal Symptoms or Stray Incidents?</h3>
+                            <p>Help protect your barangay by reporting suspected rabies, parvovirus, or other animal health concerns directly to CVO Officers.</p>
+                        </div>
+                        <button class="BUTTON_DANGER" onclick="document.querySelector('[data-module=\'alerts\']').click()">
+                            <i class="fa-solid fa-file-contract"></i> Report a Case
+                        </button>
+                    </div>
+
+                    <!-- Bottom Grid -->
+                    <div class="OWNER_DASHBOARD_GRID">
+                        <!-- Community Discussions -->
+                        <div class="OWNER_LIST_CARD card-panel">
+                            <div class="CARD_HEADER">
+                                <h3>Recent Community Discussions</h3>
+                                <a href="#" onclick="document.querySelector('[data-module=\'surveillance\']').click()" class="LINK_PRIMARY">View All</a>
+                            </div>
+                            <div class="LIST_CONTENT">
+                                <div class="LIST_ITEM">
+                                    <div class="ITEM_DETAILS">
+                                        <h4>test</h4>
+                                        <p class="SUB_TEXT">test</p>
+                                        <p class="AUTHOR_TEXT">By mohsein</p>
+                                    </div>
+                                    <span class="DATE_TEXT">2 weeks, 6 days ago</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Featured Adoptions -->
+                        <div class="OWNER_LIST_CARD card-panel">
+                            <div class="CARD_HEADER">
+                                <h3>Featured Adoptions</h3>
+                                <a href="#" onclick="document.querySelector('[data-module=\'adoptions\']').click()" class="LINK_PRIMARY">Adoption Hub</a>
+                            </div>
+                            <div id="ownerFeaturedAdoptions" class="EMPTY_STATE">
+                                <p>Loading adoption listings…</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
                 <section id="registryPanel" class="REGISTRY_PANEL" hidden></section>
                 <section id="featurePanel" class="FEATURE_PANEL" hidden aria-live="polite"></section>
             </main>

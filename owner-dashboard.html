@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityVetHub - Owner Dashboard</title>
+    <!-- Assuming your current styles are in styles/main.css -->
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+</head>
+<body class="bg-light">
+
+<main class="dashboard-wrapper">
+    <!-- Hero Section -->
+    <section class="card hero-card">
+        <h1 class="hero-title">City Vet Hub</h1>
+        <p class="hero-subtitle">Integrated animal registration, disease surveillance, and adoption services for Iligan City.</p>
+        
+        <div class="hero-actions">
+            <button class="btn btn-primary" onclick="window.location.href='adoptions.html'">
+                <i class="fa-solid fa-heart"></i> Browse Adoptions
+            </button>
+            <button class="btn btn-outline" onclick="window.location.href='community.html'">
+                <i class="fa-regular fa-comment-dots"></i> Community Feed
+            </button>
+        </div>
+    </section>
+
+    <!-- Alert / Report Banner -->
+    <section class="card alert-banner">
+        <div class="alert-content">
+            <div class="alert-text">
+                <h3><i class="fa-solid fa-bullhorn text-danger"></i> Notice Unusual Animal Symptoms or Stray Incidents?</h3>
+                <p>Help protect your barangay by reporting suspected rabies, parvovirus, or other animal health concerns directly to CVO Officers.</p>
+            </div>
+            <button class="btn btn-danger" onclick="window.location.href='report.html'">
+                <i class="fa-solid fa-file-contract"></i> Report a Case
+            </button>
+        </div>
+    </section>
+
+    <!-- Bottom Grid (Discussions & Adoptions) -->
+    <div class="dashboard-grid">
+        <!-- Community Discussions -->
+        <div class="card list-card">
+            <div class="card-header">
+                <h3>Recent Community Discussions</h3>
+                <a href="community.html" class="link-primary">View All</a>
+            </div>
+            <div class="list-content">
+                <!-- Example Item -->
+                <div class="list-item">
+                    <div class="item-details">
+                        <h4>test</h4>
+                        <p class="sub-text">test</p>
+                        <p class="author-text">By mohsein</p>
+                    </div>
+                    <div class="item-meta">
+                        <span class="date-text">2 weeks, 6 days ago</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Featured Adoptions -->
+        <div class="card list-card">
+            <div class="card-header">
+                <h3>Featured Adoptions</h3>
+                <a href="adoptions.html" class="link-primary">Adoption Hub</a>
+            </div>
+            <div class="list-content empty-state">
+                <p>No pets currently listed for adoption.</p>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Load your Appwrite SDK and scripts -->
+<script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1/dist/iife/sdk.min.js"></script>
+<script src="scripts/config.js"></script>
+<script src="scripts/appwrite.js"></script>
+</body>
+</html>

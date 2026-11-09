@@ -134,22 +134,41 @@
         const desc=document.createElement('span');desc.textContent=d.description;
         card.append(bubble,cardTitle,desc);grid.append(card);
     });
-    function openModule(key) {
+   function openModule(key) {
         if (!allowed.includes(key)) return;
         document.querySelectorAll('#sideNav [data-module]').forEach(a=>a.classList.toggle('is-active',a.dataset.module===key));
-        document.getElementById('overviewPanel').hidden = key!=='home';
-        if(key==='home')refreshOverview();
+        
+        const adminPanel = document.getElementById('overviewPanel');
+        const ownerPanel = document.getElementById('ownerOverviewPanel');
+        
+        if (key === 'home') {
+            if (role === 'owner' && ownerPanel) {
+                adminPanel.hidden = true;
+                ownerPanel.hidden = false;
+                loadOwnerFeaturedAdoptions();
+            } else {
+                if (ownerPanel) ownerPanel.hidden = true;
+                adminPanel.hidden = false;
+                refreshOverview();
+            }
+        } else {
+            adminPanel.hidden = true;
+            if (ownerPanel) ownerPanel.hidden = true;
+        }
+
         document.getElementById('registryPanel').hidden = key!=='pets';
         if (key==='pets') {
             if (!openRegistry) openRegistry = window.CityVetRegistry.mount({ api, current });
             else openRegistry.reload();
         }
+        
         const panel=document.getElementById('featurePanel');
         panel.hidden = key==='home' || key==='pets';
         if(key!=='home'&&key!=='pets') {
             if (['surveillance','reports','profile'].includes(key)) phase4Hub.open(key);
             else { phase4Hub.close(); featureHub.open(key); }
         } else phase4Hub.close();
+        
         document.getElementById('pageTitle').textContent=pageDefs[key].title;
         document.getElementById('searchInput').value='';
     }
@@ -233,4 +252,53 @@
     refreshOverview();
     const deepLink=new URLSearchParams(window.location.search).get('module');
     if (deepLink&&allowed.includes(deepLink)) openModule(deepLink);
+    async function loadOwnerFeaturedAdoptions() {
+        const container = document.getElementById('ownerFeaturedAdoptions');
+        if (!container) return;
+        try {
+            const tableId = api.config.tables.adoptionListings;
+            const response = await api.tablesDB.listRows({
+                databaseId: api.config.databaseId,
+                tableId,
+                queries: [window.Appwrite.Query.orderDesc('$createdAt'), window.Appwrite.Query.limit(3)]
+            });
+            const listings = response.rows || [];
+            if (!listings.length) {
+                container.className = 'EMPTY_STATE';
+                container.innerHTML = '<p>No pets currently listed for adoption.</p>';
+                return;
+            }
+            container.className = 'LIST_CONTENT';
+            container.replaceChildren(...listings.map(item => {
+                const row = document.createElement('div');
+                row.className = 'LIST_ITEM';
+                row.style.cursor = 'pointer';
+                row.addEventListener('click', () => document.querySelector('[data-module="adoptions"]').click());
+                
+                const details = document.createElement('div');
+                details.className = 'ITEM_DETAILS';
+                
+                const h4 = document.createElement('h4');
+                h4.textContent = item.title || item.petName || 'Adoptable Pet';
+                
+                const sub = document.createElement('p');
+                sub.className = 'SUB_TEXT';
+                sub.textContent = item.description || 'Ready for adoption';
+                
+                details.append(h4, sub);
+                
+                const badge = document.createElement('span');
+                badge.className = 'LINK_PRIMARY';
+                badge.textContent = 'View →';
+                
+                row.append(details, badge);
+                return row;
+            }));
+        } catch (e) {
+            container.className = 'EMPTY_STATE';
+            container.innerHTML = '<p>Unable to load adoption listings.</p>';
+        }
+    }
+
 })();
+

@@ -119,3 +119,180 @@
     padding-left: 15px;
     height: 45px;
 }
+
+/* --- Owner Dashboard Specific Layout --- */
+.dashboard-wrapper2 {
+    max-width: 1000px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.bg-light {
+    background-color: #F4F6F8;
+}
+
+.card {
+    background: #FFFFFF;
+    border-radius: 8px;
+    padding: 2rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border: 1px solid #E5E7EB;
+}
+
+/* Hero Section */
+.hero-title {
+    font-size: 2.5rem;
+    color: #111827;
+    margin-bottom: 0.5rem;
+}
+
+.hero-subtitle {
+    font-size: 1.1rem;
+    color: #6B7280;
+    margin-bottom: 2rem;
+}
+
+.hero-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+/* Alert Banner */
+.alert-banner {
+    padding: 1.5rem 2rem;
+}
+
+.alert-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+}
+
+.alert-text h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    color: #111827;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.alert-text p {
+    margin: 0;
+    color: #6B7280;
+    font-size: 0.95rem;
+}
+
+/* Grid Sections */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #E5E7EB;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #111827;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6B7280;
+}
+
+.list-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 0;
+    border-bottom: 1px solid #F3F4F6;
+}
+
+.list-item h4 {
+    margin: 0 0 0.25rem 0;
+    color: #111827;
+}
+
+.sub-text, .author-text, .date-text {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #6B7280;
+}
+
+/* Buttons & Utilities */
+.btn {
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+}
+
+/* Applying your custom Green theme */
+.btn-primary {
+    background-color: #1B4332;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #52B788;
+}
+
+.btn-outline {
+    background-color: transparent;
+    border: 1px solid #1B4332;
+    color: #1B4332;
+}
+
+.btn-outline:hover {
+    background-color: #f0fdf4;
+}
+
+.btn-danger {
+    background-color: #DC2626;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #B91C1C;
+}
+
+.text-danger { color: #DC2626; }
+.link-primary {
+    color: #52B788;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* Responsive constraints for Mobile */
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .alert-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .hero-actions {
+        flex-direction: column;
+    }
+}
