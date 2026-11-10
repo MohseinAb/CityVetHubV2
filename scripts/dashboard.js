@@ -146,7 +146,7 @@
         // Toggle dashboard views based on role
         if (key === 'home') {
             if (role === 'owner' && ownerPanel) {
-                adminPanel.hidden = true;
+                if (adminPanel) adminPanel.hidden = true;
                 ownerPanel.hidden = false;
                 if (typeof loadOwnerFeaturedAdoptions === 'function') loadOwnerFeaturedAdoptions();
                 if (typeof loadOwnerCommunityDiscussions === 'function') loadOwnerCommunityDiscussions();
@@ -387,15 +387,15 @@
             const response = await api.tablesDB.listRows({
                 databaseId: api.config.databaseId,
                 tableId,
-                // Removed orderDesc('$createdAt') to fix the index error
                 queries: [window.Appwrite.Query.limit(10)]
             });
             const announcements = (response.rows || []).filter(r => r.isActive !== false);
+            
             if (!announcements.length) {
                 container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">No official announcements at this time.</p>';
                 return;
             }
-            const item = announcements[announcements.length - 1]; // Get the latest one
+            const item = announcements[announcements.length - 1]; // Grabs the latest entry
             container.innerHTML = `
                 <p style="color: #111827; font-weight: 600; margin: 0 0 0.25rem 0;">${item.title || 'Official Notice'}</p>
                 <p style="color: #6B7280; font-size: 0.95rem; margin: 0;">${item.body || item.message || ''}</p>
