@@ -156,7 +156,8 @@
                 adminPanel.hidden = false;
                 refreshOverview();
             }
-        } else {
+        } else {overlay.hidden=true;  
+         view.hidden=false;
             adminPanel.hidden = true;
             if (ownerPanel) ownerPanel.hidden = true;
         }
@@ -274,11 +275,17 @@
     }catch{/* Focus and polling provide fallback on older SDK builds. */}
     document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkAlertFeed();checkCommunityAnnouncements();}});
     setInterval(()=>{checkAlertFeed();checkCommunityAnnouncements();},60000);
-    overlay.hidden=true;
-    view.hidden=false;
-    refreshOverview();
-    const deepLink=new URLSearchParams(window.location.search).get('module');
-    if (deepLink&&allowed.includes(deepLink)) openModule(deepLink);
+    overlay.hidden = true;
+    view.hidden = false;
+
+    
+    if (role === 'owner') {
+        openModule('home');
+    } else {
+        refreshOverview();
+        const deepLink = new URLSearchParams(window.location.search).get('module');
+        if (deepLink && allowed.includes(deepLink)) openModule(deepLink);
+    }
 
     async function loadOwnerCommunityDiscussions() {
         const container = document.getElementById('ownerCommunityDiscussions');
