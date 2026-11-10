@@ -24,7 +24,8 @@
         pets: { title:'Pet Registry', description:'Pet profiles, registration and digital QR identity.', icon:'fa-paw' },
         medical: { title:'Medical & Vaccination', description:'Authorized health and vaccination workflows.', icon:'fa-stethoscope' },
         surveillance: { title:'Incident Surveillance', description:'Barangay boundaries, incident reports, CVO review and outbreak alerts.', icon:'fa-map-location-dot' },
-        alerts: { title:'Outbreak Alerts', description:'Public health notifications and disease reports.', icon:'fa-bacterium' },
+        alerts: { title:'Staff Alerts & Announcements', description:'Official outbreak notifications and CVO announcements for field staff.', icon:'fa-bacterium' },
+        community: { title:'Community', description:'Pet owner channels, discussions, votes, CVO announcements and outbreak advisories.', icon:'fa-comments' },
         adoptions: { title:'Adoptions', description:'Animal listings and citizen applications.', icon:'fa-heart' },
         traceability: { title:'Ownership & Traceability', description:'QR passports and ownership records.', icon:'fa-id-card-clip' },
         users: { title:'Account Management', description:'Member verification and role management.', icon:'fa-users' },
@@ -32,9 +33,9 @@
         profile: { title:'My Profile', description:'Manage personal details, avatar, and account security.', icon:'fa-user-gear' }
     };
     const modulesByRole = {
-        admin: ['home','pets','medical','surveillance','alerts','adoptions','traceability','users','reports','profile'],
+        admin: ['home','pets','medical','surveillance','alerts','community','adoptions','traceability','users','reports','profile'],
         officer: ['home','pets','medical','surveillance','alerts','traceability','profile'],
-        owner: ['home','pets','medical','surveillance','alerts','adoptions','traceability','profile']
+        owner: ['home','pets','medical','surveillance','community','adoptions','traceability','profile']
     };
     const role = current.role;
     const themeButton=document.getElementById('themeButton');
@@ -51,6 +52,7 @@
     if (!window.CityVetFeatures?.mount) return fail('The CityVetHub feature scripts did not load. Make sure scripts/features.js exists and reload the page.');
     const featureHub = window.CityVetFeatures.mount({api,current,container:document.getElementById('featurePanel')});
     const phase4Hub=window.CityVetPhase4.mount({api,current,container:document.getElementById('featurePanel')});
+    const communityHub=window.CityVetCommunity?.mount({api,current,container:document.getElementById('featurePanel')});
     const allowed = modulesByRole[role];
     const user = current.user;
     document.getElementById('userName').textContent = user.name || user.email;
@@ -134,41 +136,29 @@
         const desc=document.createElement('span');desc.textContent=d.description;
         card.append(bubble,cardTitle,desc);grid.append(card);
     });
-   function openModule(key) {
+    function openModule(key) {
         if (!allowed.includes(key)) return;
         document.querySelectorAll('#sideNav [data-module]').forEach(a=>a.classList.toggle('is-active',a.dataset.module===key));
-        
-        const adminPanel = document.getElementById('overviewPanel');
-        const ownerPanel = document.getElementById('ownerOverviewPanel');
-        
-        if (key === 'home') {
-            if (role === 'owner' && ownerPanel) {
-                adminPanel.hidden = true;
-                ownerPanel.hidden = false;
-                loadOwnerFeaturedAdoptions();
-            } else {
-                if (ownerPanel) ownerPanel.hidden = true;
-                adminPanel.hidden = false;
-                refreshOverview();
-            }
-        } else {
-            adminPanel.hidden = true;
-            if (ownerPanel) ownerPanel.hidden = true;
-        }
-
+        document.getElementById('overviewPanel').hidden = key!=='home';
+        if(key==='home')refreshOverview();
         document.getElementById('registryPanel').hidden = key!=='pets';
         if (key==='pets') {
             if (!openRegistry) openRegistry = window.CityVetRegistry.mount({ api, current });
             else openRegistry.reload();
         }
-        
         const panel=document.getElementById('featurePanel');
         panel.hidden = key==='home' || key==='pets';
         if(key!=='home'&&key!=='pets') {
-            if (['surveillance','reports','profile'].includes(key)) phase4Hub.open(key);
-            else { phase4Hub.close(); featureHub.open(key); }
-        } else phase4Hub.close();
-        
+            if(key==='community'||(key==='alerts'&&role==='officer')){
+                phase4Hub.close();
+                if(!communityHub){panel.textContent='Community scripts did not load.';}
+                else communityHub.open(key==='alerts'?'officer-notices':'community');
+            }else{
+                communityHub?.close();
+                if (['surveillance','reports','profile'].includes(key)) phase4Hub.open(key);
+                else { phase4Hub.close(); featureHub.open(key); }
+            }
+        }else{phase4Hub.close();communityHub?.close();}
         document.getElementById('pageTitle').textContent=pageDefs[key].title;
         document.getElementById('searchInput').value='';
     }
@@ -179,7 +169,9 @@
         const term=event.target.value.toLowerCase().trim();
         if (!document.getElementById('registryPanel').hidden && openRegistry) openRegistry.filter(term);
         if (!document.getElementById('featurePanel').hidden) {
-            if(['surveillance','reports','profile'].includes(document.querySelector('#sideNav .is-active')?.dataset.module)) phase4Hub.search(term);
+            const mod=document.querySelector('#sideNav .is-active')?.dataset.module;
+            if(mod==='community'||(mod==='alerts'&&role==='officer'))communityHub?.search(term);
+            else if(['surveillance','reports','profile'].includes(mod))phase4Hub.search(term);
             else featureHub.search(term);
         }
         grid.querySelectorAll('.MODULE_CARD').forEach(card=>{
@@ -207,9 +199,9 @@
     const alertTable=role==='owner'?api.config.tables.ownerAlerts:api.config.tables.diseaseAlerts;
     const alertRegion=document.createElement('div');alertRegion.className='CV49_LIVE_ALERT';alertRegion.hidden=true;
     alertRegion.setAttribute('role','status');alertRegion.setAttribute('aria-live','polite');
-    alertRegion.innerHTML='<span class="CV49_ALERT_BELL"><i class="fa-solid fa-bell"></i></span><div><strong id="cv49LiveTitle">CVO alert</strong><p id="cv49LiveMessage"></p></div><button type="button" id="cv49OpenAlerts">View Alerts</button><button type="button" class="CV49_ALERT_DISMISS" id="cv49DismissAlerts" aria-label="Dismiss alert">×</button>';
+    alertRegion.innerHTML='<span class="CV49_ALERT_BELL"><i class="fa-solid fa-bell"></i></span><div><strong id="cv49LiveTitle">CVO alert</strong><p id="cv49LiveMessage"></p></div><button type="button" id="cv49OpenAlerts">View updates</button><button type="button" class="CV49_ALERT_DISMISS" id="cv49DismissAlerts" aria-label="Dismiss alert">×</button>';
     document.querySelector('.DASHBOARD_CONTENT .BREADCRUMBS')?.after(alertRegion);
-    alertRegion.querySelector('#cv49OpenAlerts').addEventListener('click',()=>openModule('alerts'));
+    alertRegion.querySelector('#cv49OpenAlerts').addEventListener('click',()=>openModule(role==='owner'?'community':'alerts'));
     alertRegion.querySelector('#cv49DismissAlerts').addEventListener('click',()=>alertRegion.hidden=true);
     const seenAlerts=new Set();let loadedAlerts=false;
     function showLiveAlert(row,initial=false){
@@ -233,6 +225,13 @@
       }catch{/* Feed is optional if migrations have not run; never expose another user's records. */}
     }
     await checkAlertFeed();
+    const seenOfficialAnnouncements=new Set();let announcementsLoaded=false;
+    async function checkCommunityAnnouncements(){
+       try{const r=await api.operate('communityOfficialNotices');const items=(r.notices||[]).filter(x=>x.category==='announcement'&&x.isActive);
+         for(const n of items){if(announcementsLoaded&&!seenOfficialAnnouncements.has(n.id))showLiveAlert({title:n.title,message:n.body,barangay:'CityVetHub',diseaseType:'Announcement',isActive:true});seenOfficialAnnouncements.add(n.id);}announcementsLoaded=true;
+       }catch{/* Community migration not active yet; other pages remain available. */}
+    }
+    await checkCommunityAnnouncements();
     // Realtime is available in the current Appwrite SDK; an on-focus refresh
     // catches messages missed while the browser was sleeping or disconnected.
     try{
@@ -245,60 +244,11 @@
         })).catch(()=>{});
       }else if(api.client?.subscribe){api.client.subscribe(channel,event=>{if(event?.payload?.isActive&&!seenAlerts.has(event.payload.$id)){seenAlerts.add(event.payload.$id);showLiveAlert(event.payload);}});}
     }catch{/* Focus and polling provide fallback on older SDK builds. */}
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkAlertFeed();});
-    setInterval(checkAlertFeed,60000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkAlertFeed();checkCommunityAnnouncements();}});
+    setInterval(()=>{checkAlertFeed();checkCommunityAnnouncements();},60000);
     overlay.hidden=true;
     view.hidden=false;
     refreshOverview();
     const deepLink=new URLSearchParams(window.location.search).get('module');
     if (deepLink&&allowed.includes(deepLink)) openModule(deepLink);
-    async function loadOwnerFeaturedAdoptions() {
-        const container = document.getElementById('ownerFeaturedAdoptions');
-        if (!container) return;
-        try {
-            const tableId = api.config.tables.adoptionListings;
-            const response = await api.tablesDB.listRows({
-                databaseId: api.config.databaseId,
-                tableId,
-                queries: [window.Appwrite.Query.orderDesc('$createdAt'), window.Appwrite.Query.limit(3)]
-            });
-            const listings = response.rows || [];
-            if (!listings.length) {
-                container.className = 'EMPTY_STATE';
-                container.innerHTML = '<p>No pets currently listed for adoption.</p>';
-                return;
-            }
-            container.className = 'LIST_CONTENT';
-            container.replaceChildren(...listings.map(item => {
-                const row = document.createElement('div');
-                row.className = 'LIST_ITEM';
-                row.style.cursor = 'pointer';
-                row.addEventListener('click', () => document.querySelector('[data-module="adoptions"]').click());
-                
-                const details = document.createElement('div');
-                details.className = 'ITEM_DETAILS';
-                
-                const h4 = document.createElement('h4');
-                h4.textContent = item.title || item.petName || 'Adoptable Pet';
-                
-                const sub = document.createElement('p');
-                sub.className = 'SUB_TEXT';
-                sub.textContent = item.description || 'Ready for adoption';
-                
-                details.append(h4, sub);
-                
-                const badge = document.createElement('span');
-                badge.className = 'LINK_PRIMARY';
-                badge.textContent = 'View →';
-                
-                row.append(details, badge);
-                return row;
-            }));
-        } catch (e) {
-            container.className = 'EMPTY_STATE';
-            container.innerHTML = '<p>Unable to load adoption listings.</p>';
-        }
-    }
-
 })();
-

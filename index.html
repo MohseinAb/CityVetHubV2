@@ -4,8 +4,9 @@
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard — CityVetHub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"><link rel="stylesheet" href="./styles/main_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/buttons_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/inputs_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/dashboard_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/registry_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/features_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/phase4.css?v=4.14.0">
-    <script src="https://cdn.jsdelivr.net/npm/appwrite@29.0.0" defer></script><script src="./scripts/config.js?v=4.14.0" defer></script><script src="./scripts/appwrite.js?v=4.14.0" defer></script><script src="./scripts/iligan-barangays.js?v=4.14.0" defer></script><script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script><script src="./scripts/registry-v4.js?v=4.14.0" defer></script><script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script><script src="./scripts/features.js?v=4.14.0" defer></script><script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" defer></script><script src="./scripts/phase4-features.js?v=4.14.0" defer></script><script src="./scripts/dashboard.js?v=4.14.0" defer></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"><link rel="stylesheet" href="./styles/main_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/buttons_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/inputs_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/dashboard_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/registry_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/features_styles.css?v=4.14.0"><link rel="stylesheet" href="./styles/phase4.css?v=4.15.0">
+    <script src="https://cdn.jsdelivr.net/npm/appwrite@29.0.0" defer></script><script src="./scripts/config.js?v=4.15.0" defer></script><script src="./scripts/appwrite.js?v=4.15.0" defer></script><script src="./scripts/iligan-barangays.js?v=4.14.0" defer></script><script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script><script src="./scripts/registry-v4.js?v=4.14.0" defer></script><script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script><script src="./scripts/features.js?v=4.14.0" defer></script><script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" defer></script><script src="./scripts/phase4-features.js?v=4.14.0" defer></script><script src="./scripts/community.js?v=4.16.0" defer></script><script src="./scripts/dashboard.js?v=4.15.0" defer></script>
+<link rel="stylesheet" href="./styles/community.css?v=4.16.0">
 </head>
 <body>
     <div id="loadingPanel" class="AUTH_LOADING"><div class="LOADING_ICON"><i class="fa-solid fa-paw"></i></div><p>Securing your CityVetHub session…</p></div>
@@ -27,7 +28,7 @@
                 <section id="overviewPanel">
                     <div class="DASHBOARD_INTRO"><div><p class="DASHBOARD_EYEBROW">YOUR WORKSPACE</p><h1>Welcome back, <span id="welcomeName">friend</span><span class="ACCENT_PERIOD">.</span></h1><p>City veterinary care and services, connected in one place.</p></div><div class="DASHBOARD_STATUS"><span class="STATUS_DOT"></span> Session active</div></div>
                     <div class="OVERVIEW_GRID">
-                        <div class="WELCOME_CARD"><div class="WELCOME_TOP"><span><i class="fa-solid fa-shield-heart"></i> CITYVETHUB</span><span class="WELCOME_TAG">Phase 4.12</span></div><div><h2>A smarter way to care for our city's pets.</h2><p>Pet registration, adoption, clinical records and surveillance modules share one Appwrite backend.</p></div><div class="WELCOME_BOTTOM"><span><i class="fa-solid fa-circle-check"></i> Authenticated by Appwrite</span><i class="fa-solid fa-arrow-up-right-from-square"></i></div></div>
+                        <div class="WELCOME_CARD"><div class="WELCOME_TOP"><span><i class="fa-solid fa-shield-heart"></i> CITYVETHUB</span><span class="WELCOME_TAG">Phase 4.15</span></div><div><h2>A smarter way to care for our city's pets.</h2><p>Pet registration, adoption, clinical records and surveillance modules share one Appwrite backend.</p></div><div class="WELCOME_BOTTOM"><span><i class="fa-solid fa-circle-check"></i> Authenticated by Appwrite</span><i class="fa-solid fa-arrow-up-right-from-square"></i></div></div>
                         <div class="INFO_CARD"><div class="INFO_CARD_ICON"><i class="fa-solid fa-user-shield"></i></div><p>YOUR ACCOUNT</p><h3>Secure access</h3><span>Signed in as <strong id="accountEmail"></strong>. Appwrite manages your session and role memberships.</span><div class="INFO_CARD_FOOT"><i class="fa-solid fa-lock"></i> Private account access</div></div>
                         <div class="INFO_CARD INFO_CARD_WARM"><div class="INFO_CARD_ICON"><i class="fa-solid fa-layer-group"></i></div><p>MODULE STATUS</p><h3>Modules installed</h3><span>The modules are included in this version. Live data requires the Appwrite database tables and secure Function to be configured.</span><div class="INFO_CARD_FOOT"><i class="fa-solid fa-code"></i> Appwrite: shared data modules</div></div>
                     </div>
@@ -35,65 +36,6 @@
                     <div id="dashboardMetrics" class="CV_STATS"><div class="CV_STAT"><span>Verified pets</span><strong>—</strong></div><div class="CV_STAT"><span>Registration requests</span><strong>—</strong></div><div class="CV_STAT"><span>Active alerts</span><strong>—</strong></div><div class="CV_STAT"><span>Adoption listings</span><strong>—</strong></div></div>
                     <div class="SECTION_HEAD"><div><h2>Explore CityVetHub</h2><p>Choose a module to view records, submit requests or manage CVO workflows.</p></div><span>WORKSPACE</span></div>
                     <div id="moduleGrid" class="MODULE_GRID"></div>
-                </section>
-                <!-- New Pet Owner Dashboard View -->
-                <section id="ownerOverviewPanel" hidden>
-                    <!-- Hero Section -->
-                    <div class="OWNER_HERO_CARD card-panel">
-                        <h1>City Vet Hub</h1>
-                        <p>Integrated animal registration, disease surveillance, and adoption services for Iligan City.</p>
-                        <div class="HERO_ACTIONS">
-                            <button class="BUTTON_TYPE1" onclick="document.querySelector('[data-module=\'adoptions\']').click()">
-                                <i class="fa-solid fa-heart"></i> Browse Adoptions
-                            </button>
-                            <button class="BUTTON_OUTLINE" onclick="document.querySelector('[data-module=\'surveillance\']').click()">
-                                <i class="fa-regular fa-comment-dots"></i> Community Feed
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Alert / Report Banner -->
-                    <div class="OWNER_ALERT_BANNER card-panel">
-                        <div class="ALERT_TEXT">
-                            <h3><i class="fa-solid fa-bullhorn" style="color: #DC2626;"></i> Notice Unusual Animal Symptoms or Stray Incidents?</h3>
-                            <p>Help protect your barangay by reporting suspected rabies, parvovirus, or other animal health concerns directly to CVO Officers.</p>
-                        </div>
-                        <button class="BUTTON_DANGER" onclick="document.querySelector('[data-module=\'alerts\']').click()">
-                            <i class="fa-solid fa-file-contract"></i> Report a Case
-                        </button>
-                    </div>
-
-                    <!-- Bottom Grid -->
-                    <div class="OWNER_DASHBOARD_GRID">
-                        <!-- Community Discussions -->
-                        <div class="OWNER_LIST_CARD card-panel">
-                            <div class="CARD_HEADER">
-                                <h3>Recent Community Discussions</h3>
-                                <a href="#" onclick="document.querySelector('[data-module=\'surveillance\']').click()" class="LINK_PRIMARY">View All</a>
-                            </div>
-                            <div class="LIST_CONTENT">
-                                <div class="LIST_ITEM">
-                                    <div class="ITEM_DETAILS">
-                                        <h4>test</h4>
-                                        <p class="SUB_TEXT">test</p>
-                                        <p class="AUTHOR_TEXT">By mohsein</p>
-                                    </div>
-                                    <span class="DATE_TEXT">2 weeks, 6 days ago</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Featured Adoptions -->
-                        <div class="OWNER_LIST_CARD card-panel">
-                            <div class="CARD_HEADER">
-                                <h3>Featured Adoptions</h3>
-                                <a href="#" onclick="document.querySelector('[data-module=\'adoptions\']').click()" class="LINK_PRIMARY">Adoption Hub</a>
-                            </div>
-                            <div id="ownerFeaturedAdoptions" class="EMPTY_STATE">
-                                <p>Loading adoption listings…</p>
-                            </div>
-                        </div>
-                    </div>
                 </section>
                 <section id="registryPanel" class="REGISTRY_PANEL" hidden></section>
                 <section id="featurePanel" class="FEATURE_PANEL" hidden aria-live="polite"></section>
