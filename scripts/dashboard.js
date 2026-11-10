@@ -139,26 +139,54 @@
     function openModule(key) {
         if (!allowed.includes(key)) return;
         document.querySelectorAll('#sideNav [data-module]').forEach(a=>a.classList.toggle('is-active',a.dataset.module===key));
-        document.getElementById('overviewPanel').hidden = key!=='home';
-        if(key==='home')refreshOverview();
+        
+        const adminPanel = document.getElementById('overviewPanel');
+        const ownerPanel = document.getElementById('ownerOverviewPanel');
+        
+        // Toggle dashboard views based on role
+        if (key === 'home') {
+            if (role === 'owner' && ownerPanel) {
+                adminPanel.hidden = true;
+                ownerPanel.hidden = false;
+                if (typeof loadOwnerFeaturedAdoptions === 'function') loadOwnerFeaturedAdoptions();
+                if (typeof loadOwnerCommunityDiscussions === 'function') loadOwnerCommunityDiscussions();
+                if (typeof loadOwnerAnnouncements === 'function') loadOwnerAnnouncements();
+            } else {
+                if (ownerPanel) ownerPanel.hidden = true;
+                adminPanel.hidden = false;
+                refreshOverview();
+            }
+        } else {
+            adminPanel.hidden = true;
+            if (ownerPanel) ownerPanel.hidden = true;
+        }
+
+        // Toggle pet registry
         document.getElementById('registryPanel').hidden = key!=='pets';
         if (key==='pets') {
             if (!openRegistry) openRegistry = window.CityVetRegistry.mount({ api, current });
             else openRegistry.reload();
         }
+        
+        // Toggle feature panels (safely closing what can be closed)
         const panel=document.getElementById('featurePanel');
         panel.hidden = key==='home' || key==='pets';
-        if(key!=='home'&&key!=='pets') {
-            if(key==='community'||(key==='alerts'&&role==='officer')){
+        
+        if(key!=='home' && key!=='pets') {
+            if (key==='community' || (key==='alerts' && role==='officer')) {
                 phase4Hub.close();
-                if(!communityHub){panel.textContent='Community scripts did not load.';}
-                else communityHub.open(key==='alerts'?'officer-notices':'community');
-            }else{
+                if (!communityHub) { panel.textContent='Community scripts did not load.'; }
+                else communityHub.open(key==='alerts' ? 'officer-notices' : 'community');
+            } else {
                 communityHub?.close();
                 if (['surveillance','reports','profile'].includes(key)) phase4Hub.open(key);
                 else { phase4Hub.close(); featureHub.open(key); }
             }
-        }else{phase4Hub.close();communityHub?.close();}
+        } else {
+            phase4Hub.close();
+            communityHub?.close();
+        }
+        
         document.getElementById('pageTitle').textContent=pageDefs[key].title;
         document.getElementById('searchInput').value='';
     }
@@ -251,4 +279,130 @@
     refreshOverview();
     const deepLink=new URLSearchParams(window.location.search).get('module');
     if (deepLink&&allowed.includes(deepLink)) openModule(deepLink);
+
+    async function loadOwnerCommunityDiscussions() {
+        const container = document.getElementById('ownerCommunityDiscussions');
+        if (!container) return;
+        try {
+            const tableId = api.config.tables.communityPosts;
+            const response = await api.tablesDB.listRows({
+                databaseId: api.config.databaseId,
+                tableId,
+                // Removed orderDesc('$createdAt') to fix the index error
+                queries: [window.Appwrite.Query.limit(3)]
+            });
+            const posts = response.rows || [];
+            if (!posts.length) {
+                container.className = 'EMPTY_STATE';
+                container.innerHTML = '<p>No community discussions yet.</p>';
+                return;
+            }
+            container.className = 'LIST_CONTENT';
+            container.replaceChildren(...posts.reverse().map(item => { // Reverse to show latest
+                const row = document.createElement('div');
+                row.className = 'LIST_ITEM';
+                row.style.cursor = 'pointer';
+                row.addEventListener('click', () => document.querySelector('[data-module="community"]').click());
+                
+                const details = document.createElement('div');
+                details.className = 'ITEM_DETAILS';
+                
+                const h4 = document.createElement('h4');
+                h4.textContent = item.title || 'Community Post';
+                
+                const sub = document.createElement('p');
+                sub.className = 'SUB_TEXT';
+                const bodyText = item.body || '';
+                sub.textContent = bodyText.length > 55 ? bodyText.substring(0, 55) + '...' : (bodyText || 'Join the discussion');
+                
+                details.append(h4, sub);
+                
+                const badge = document.createElement('span');
+                badge.className = 'LINK_PRIMARY';
+                badge.textContent = 'View →';
+                
+                row.append(details, badge);
+                return row;
+            }));
+        } catch (e) {
+            container.className = 'EMPTY_STATE';
+            container.innerHTML = '<p>Unable to load discussions.</p>';
+        }
+    }
+
+    async function loadOwnerFeaturedAdoptions() {
+        const container = document.getElementById('ownerFeaturedAdoptions');
+        if (!container) return;
+        try {
+            const tableId = api.config.tables.adoptionListings;
+            const response = await api.tablesDB.listRows({
+                databaseId: api.config.databaseId,
+                tableId,
+                // Removed orderDesc('$createdAt') to fix the index error
+                queries: [window.Appwrite.Query.limit(3)]
+            });
+            const listings = response.rows || [];
+            if (!listings.length) {
+                container.className = 'EMPTY_STATE';
+                container.innerHTML = '<p>No pets currently listed for adoption.</p>';
+                return;
+            }
+            container.className = 'LIST_CONTENT';
+            container.replaceChildren(...listings.reverse().map(item => { // Reverse to show latest
+                const row = document.createElement('div');
+                row.className = 'LIST_ITEM';
+                row.style.cursor = 'pointer';
+                row.addEventListener('click', () => document.querySelector('[data-module="adoptions"]').click());
+                
+                const details = document.createElement('div');
+                details.className = 'ITEM_DETAILS';
+                
+                const h4 = document.createElement('h4');
+                h4.textContent = item.title || item.petName || 'Adoptable Pet';
+                
+                const sub = document.createElement('p');
+                sub.className = 'SUB_TEXT';
+                sub.textContent = item.description || 'Ready for adoption';
+                
+                details.append(h4, sub);
+                
+                const badge = document.createElement('span');
+                badge.className = 'LINK_PRIMARY';
+                badge.textContent = 'View →';
+                
+                row.append(details, badge);
+                return row;
+            }));
+        } catch (e) {
+            container.className = 'EMPTY_STATE';
+            container.innerHTML = '<p>Unable to load adoption listings.</p>';
+        }
+    }
+
+    async function loadOwnerAnnouncements() {
+        const container = document.getElementById('ownerAnnouncements');
+        if (!container) return;
+        try {
+            const tableId = api.config.tables.communityAnnouncements;
+            const response = await api.tablesDB.listRows({
+                databaseId: api.config.databaseId,
+                tableId,
+                // Removed orderDesc('$createdAt') to fix the index error
+                queries: [window.Appwrite.Query.limit(10)]
+            });
+            const announcements = (response.rows || []).filter(r => r.isActive !== false);
+            if (!announcements.length) {
+                container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">No official announcements at this time.</p>';
+                return;
+            }
+            const item = announcements[announcements.length - 1]; // Get the latest one
+            container.innerHTML = `
+                <p style="color: #111827; font-weight: 600; margin: 0 0 0.25rem 0;">${item.title || 'Official Notice'}</p>
+                <p style="color: #6B7280; font-size: 0.95rem; margin: 0;">${item.body || item.message || ''}</p>
+            `;
+        } catch (e) {
+            container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">Unable to load announcements.</p>';
+        }
+    }
+
 })();

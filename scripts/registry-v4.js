@@ -34,26 +34,34 @@ function mount({api,current}){
   const f=await api.storage.createFile({bucketId:cfg.buckets.media,fileId:A.ID.unique(),file:image,permissions});return f.$id;
  }
  function petForm(pet){
-  modal(pet?`Edit ${pet.petName}`:'Add a pet',fld('Pet name','petName',pet?.petName,'text','required maxlength="100"')+
-   select('Animal type','species',['Dog','Cat'],pet?.species||'Dog')+fld('Breed','breed',pet?.breed,'text','required maxlength="100"')+
-   select('Sex','sex',['Male','Female'],pet?.sex||'Male')+fld('Age in years','ageYears',pet?.ageYears??0,'number','min="0" max="40" required')+
-   fld('Barangay','barangay',pet?.barangay,'text','required maxlength="100"')+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+
-   fld('Emergency contact (private)','emergencyContact',pet?.emergencyContact,'tel','maxlength="60"')+
-   fld('Pet profile title','profileTitle',pet?.profileTitle||'','text','maxlength="100"')+
-   txt('Pet description','profileDescription',pet?.profileDescription||'',1500)+txt('If found, please…','lostFoundMessage',pet?.lostFoundMessage||'',500)+
-   `<label class="P4_FORM_WIDE">Pet photo (JPG/PNG/WEBP, 5 MB)<input name="picture" type="file" accept="image/jpeg,image/png,image/webp"></label>`+
-   checkbox('Show my name publicly on QR profile','shareOwnerName',pet?.shareOwnerName)+checkbox('Share emergency contact publicly','shareContact',pet?.shareContact)+
-   checkbox('Share exact home address publicly (not recommended)','sharePublicAddress',pet?.sharePublicAddress)+checkbox('Show pet photo publicly','sharePublicPhoto',pet?.sharePublicPhoto)+
-   `<p class="CV_HINT P4_FORM_WIDE">The QR code is created when the pet is saved. A QR profile is NOT a CVO verification. Only details you choose to share are public.</p>`,async form=>{
-    const d=Object.fromEntries(new FormData(form));const file=form.querySelector('[name=picture]').files[0];const photoFileId=file?await upload(file):(pet?.photoFileId||'');
-    const payload={petName:String(d.petName||'').trim(),species:d.species,breed:String(d.breed||'').trim(),sex:d.sex,ageYears:Number(d.ageYears),barangay:String(d.barangay||'').trim(),homeAddress:String(d.homeAddress||'').trim(),emergencyContact:String(d.emergencyContact||'').trim(),profileTitle:String(d.profileTitle||'').trim(),profileDescription:String(d.profileDescription||'').trim(),lostFoundMessage:String(d.lostFoundMessage||'').trim(),photoFileId,
-       shareOwnerName:form.elements.shareOwnerName.checked,shareContact:form.elements.shareContact.checked,sharePublicAddress:form.elements.sharePublicAddress.checked,sharePublicPhoto:form.elements.sharePublicPhoto.checked};
-    await api.operate(pet?'updateInventoryPet':'createInventoryPet',{...(pet?{petProfileId:pet.$id}:{}),...payload});
-   },pet?'Save pet':'Create pet + QR');
+ // Create a list of available pets for ancestry (excluding the current pet if editing)
+  const parentOptions = ['None', ...pets.filter(p => p.$id !== pet?.$id).map(p => p.petName)];
+  
+  modal(pet?`Edit ${pet.petName}`:'Add a pet',fld('Pet name','petName',pet?.petName,'text','required maxlength="100"')+  
+  select('Animal type','species',['Dog','Cat'],pet?.species||'Dog')+fld('Breed','breed',pet?.breed,'text','required maxlength="100"')+  
+  select('Sex','sex',['Male','Female'],pet?.sex||'Male')+fld('Age in years','ageYears',pet?.ageYears??0,'number','min="0" max="40" required')+  
+  fld('Barangay','barangay',pet?.barangay,'text','required maxlength="100"')+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
+  fld('Emergency contact (private)','emergencyContact',pet?.emergencyContact,'tel','maxlength="60"')+  
+  select('Vital status','vitalStatus',['Alive', 'Deceased'],pet?.vitalStatus||'Alive')+
+  select('Ancestry (Parent)','ancestry',parentOptions,pet?.ancestry||'None')+
+  txt('Pet description','profileDescription',pet?.profileDescription||'',1500)+txt('If found, please…','lostFoundMessage',pet?.lostFoundMessage||'',500)+  
+  `<label class="P4_FORM_WIDE">Pet photo (JPG/PNG/WEBP, 5 MB)<input name="picture" type="file" accept="image/jpeg,image/png,image/webp"></label>`+  
+  checkbox('Show my name publicly on QR profile','shareOwnerName',pet?.shareOwnerName)+checkbox('Share emergency contact publicly','shareContact',pet?.shareContact)+  
+  checkbox('Share exact home address publicly (not recommended)','sharePublicAddress',pet?.sharePublicAddress)+checkbox('Show pet photo publicly','sharePublicPhoto',pet?.sharePublicPhoto)+  
+  `<p class="CV_HINT P4_FORM_WIDE">The QR code is created when the pet is saved. A QR profile is NOT a CVO verification. Only details you choose to share are public.</p>`,async form=>{  
+  const d=Object.fromEntries(new FormData(form));const file=form.querySelector('[name=picture]').files[0];const photoFileId=file?await upload(file):(pet?.photoFileId||'');  
+  const payload={petName:String(d.petName||'').trim(),species:d.species,breed:String(d.breed||'').trim(),sex:d.sex,ageYears:Number(d.ageYears),barangay:String(d.barangay||'').trim(),homeAddress:String(d.homeAddress||'').trim(),emergencyContact:String(d.emergencyContact||'').trim(),
+  vitalStatus:d.vitalStatus,ancestry:d.ancestry,
+  profileDescription:String(d.profileDescription||'').trim(),lostFoundMessage:String(d.lostFoundMessage||'').trim(),photoFileId,  
+  shareOwnerName:form.elements.shareOwnerName.checked,shareContact:form.elements.shareContact.checked,sharePublicAddress:form.elements.sharePublicAddress.checked,sharePublicPhoto:form.elements.sharePublicPhoto.checked};  
+  await api.operate(pet?'updateInventoryPet':'createInventoryPet',{...(pet?{petProfileId:pet.$id}:{}),...payload});  
+  },pet?'Save pet':'Create pet + QR');  
  }
  function detailsForm(pet){
   modal(`Update ${pet.petName}'s public details`,fld('Profile title','profileTitle',pet.profileTitle,'text','maxlength="100"')+
     txt('Description','profileDescription',pet.profileDescription||'')+txt('Lost & found message','lostFoundMessage',pet.lostFoundMessage||'',500)+
+    select('Vital status','vitalStatus',['Alive', 'Deceased', 'Missing'],pet?.vitalStatus||'Alive')+
+    select('Ancestry (Parent)','ancestry',parentOptions,pet.ancestry||'None')+
     fld('Emergency contact','emergencyContact',pet.emergencyContact||'','tel','maxlength="60"')+
     fld('Home address (private by default)','homeAddress',pet.homeAddress||'','text','maxlength="200"')+
     checkbox('Show owner name on public QR','shareOwnerName',pet.shareOwnerName)+checkbox('Share emergency contact on public QR','shareContact',pet.shareContact)+
@@ -130,10 +138,10 @@ function mount({api,current}){
   const official=approved.find(x=>x.petProfileId===pet.$id);
   const clinical=clinician.filter(x=>x.petId===official?.$id);
   const rows=ownEvidence.map(x=>`<div class="P46_HEALTH_ROW"><div><strong>${H(x.title)}</strong><small>${H(date(x.recordDate))} · ${x.sharePublic?'Public (owner-supplied)':'Private'}</small></div><a href="${H(safeImage(x.fileId))}" target="_blank" rel="noopener">View image</a>${action('Remove','removeHealth',x.$id,'fa-trash')}</div>`).join('');
-  const body=`<div class="P46_PET_SUMMARY P4_FORM_WIDE"><div class="P46_PET_DETAIL_IMAGE">${img(pet.photoFileId)}</div><div><h3>${H(pet.petName)}</h3>${status(pet.verificationStatus)}<p>${H(pet.species)} • ${H(pet.breed)} • ${H(pet.sex)} • ${H(pet.ageYears)} year(s)</p><p><i class="fa-solid fa-location-dot"></i> ${H(pet.barangay)}</p><p>${H(pet.profileDescription||'No description yet.')}</p></div></div>`+
-  `<div class="P46_DETAIL_FIELDS P4_FORM_WIDE"><div><span>Profile title</span><strong>${H(pet.profileTitle||pet.petName)}</strong></div><div><span>Verification status</span><strong>${H(statuses[pet.verificationStatus]||'Draft')}</strong></div><div><span>Official CVO registry ID</span><strong>${H(pet.officialRegistryId||'Not assigned')}</strong></div><div><span>Home address · Private</span><strong>${H(pet.homeAddress||'Not provided')}</strong></div><div><span>Emergency contact · Private</span><strong>${H(pet.emergencyContact||'Not provided')}</strong></div><div class="P46_WIDE"><span>Lost & found</span><strong>${H(pet.lostFoundMessage||'If found, please contact CityVetHub.')}</strong></div></div>`+
-  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Edit details','details',pet.$id,'fa-pen')}${['draft','rejected'].includes(pet.verificationStatus)?action('Edit identity','edit',pet.$id,'fa-paw')+action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+
-  `<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><div class="P4_SECTION_HEADING"><h3>Health and vaccination documents</h3>${action('Add dated photo','addHealth',pet.$id,'fa-plus',true)}</div><p>Owner-uploaded images are not official veterinary certification. Each shared document is visible to anyone with the QR link.</p>${rows||'<p class="CV_HINT">No personal health documents yet.</p>'}</div>`+
+  const body=`<div class="P46_PET_SUMMARY P4_FORM_WIDE"><div class="P46_PET_DETAIL_IMAGE">${img(pet.photoFileId)}</div><div><h3>${H(pet.petName)}</h3>${status(pet.verificationStatus)}<p>${H(pet.species)} • ${H(pet.breed)} • ${H(pet.sex)} • ${H(pet.ageYears)} year(s)</p><p><i class="fa-solid fa-location-dot"></i> ${H(pet.barangay)}</p><p>${H(pet.profileDescription||'No description yet.')}</p></div></div>`+  
+  `<div class="P46_DETAIL_FIELDS P4_FORM_WIDE"><div><span>Status</span><strong>${H(pet.vitalStatus||'Alive')}</strong></div><div><span>Ancestry</span><strong>${H(pet.ancestry||'None')}</strong></div><div><span>Verification status</span><strong>${H(statuses[pet.verificationStatus]||'Draft')}</strong></div><div><span>Official CVO registry ID</span><strong>${H(pet.officialRegistryId||'Not assigned')}</strong></div><div><span>Home address · Private</span><strong>${H(pet.homeAddress||'Not provided')}</strong></div><div><span>Emergency contact · Private</span><strong>${H(pet.emergencyContact||'Not provided')}</strong></div><div class="P46_WIDE"><span>Lost & found</span><strong>${H(pet.lostFoundMessage||'If found, please contact CityVetHub.')}</strong></div></div>`+  
+  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Edit identity','edit',pet.$id,'fa-paw')}${['draft','rejected'].includes(pet.verificationStatus)?action('Edit identity','edit',pet.$id,'fa-paw')+action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+  
+  `<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><div class="P4_SECTION_HEADING"><h3>Health and vaccination documents</h3>${action('Add dated photo','addHealth',pet.$id,'fa-plus',true)}</div><p>Owner-uploaded images are not official veterinary certification. Each shared document is visible to anyone with the QR link.</p>${rows||'<p class="CV_HINT">No personal health documents yet.</p>'}</div>`+  
   (clinical.length?`<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><h3>Veterinary records</h3>${clinical.map(c=>`<p><b>${H(c.recordType)}:</b> ${H(c.medicineType)} · ${H(date(c.dateAdministered))}</p>`).join('')}</div>`:'');
   const layer=modal(`${pet.petName} · Pet profile`,body,async()=>{});
   layer.querySelector('.P4_FORM_FOOT')?.remove();layer.classList.add('P46_DETAILS_MODAL');
