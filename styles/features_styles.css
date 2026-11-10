@@ -61,3 +61,10 @@
 #featurePanel .CV_WORKSPACE{width:100%;max-width:none;margin:0}
 #dashboardMetrics.CV_STATS{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:10px}
 @media(max-width:900px){#dashboardMetrics.CV_STATS{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Phase 4.19: permanent adoption identity in historic applications. */
+.CV419_ADOPTION_PET{display:flex;flex-direction:column;gap:4px;min-width:155px;max-width:320px;white-space:normal}
+.CV419_ADOPTION_PET strong{color:var(--ink);font-size:12px;font-weight:800;line-height:1.4;overflow-wrap:anywhere}
+.CV419_ADOPTION_PET span{color:var(--sub);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+.CV419_ADOPTION_PET small{display:inline-flex;align-items:center;gap:5px;color:var(--sub);font-size:10px;line-height:1.4}
+.CV419_ADOPTION_PET small i{color:#18a674}

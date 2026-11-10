@@ -1,4 +1,4 @@
-/* CityVetHub Community 4.16 — role-aware forum and official CVO notices.
+/* CityVetHub Community 4.18 — role-aware forum, verified author avatars and official CVO notices.
    Backend Function owns membership, verification, and write authorization. */
 (function(){'use strict';
  const H=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10,6 +10,7 @@
  function mount({api,current,container}){
   const role=current.role,owner=role==='owner',officer=role==='officer',admin=role==='admin';
   let active=false,overview=null,selected=null,selectedPost=null,section='feed',searchQuery='',revision=0,notifyTimer=null;
+  const avatarCache=new Map(); // Short-lived author photo links; never persisted in storage.
   const isVerified=()=>!!overview?.verified;
   const action=(a,data={})=>api.operate('community'+a,data);
   const message=(text,success=false)=>{const n=container.querySelector('#communityNotice');if(n){n.textContent=text;n.className='COMM_NOTICE '+(success?'ok':'error');n.hidden=!text;}else if(text)alert(text);};
@@ -30,7 +31,7 @@
   function channelCard(ch){const locked=!ch.canRead;return `<button type="button" class="COMM_CHANNEL ${selected===ch.id?'selected':''}" data-community-action="viewChannel" data-id="${H(ch.id)}"><span class="COMM_CHANNEL_ICON">${fa(ch.privacy==='private'?'lock':'hashtag')}</span><span class="COMM_CHANNEL_TEXT"><strong>${H(ch.name)}</strong><small>${H(ch.description||'Pet owner community')}</small></span><span class="COMM_TAG ${locked?'locked':''}">${ch.privacy==='private'?'Private':'Public'}</span></button>`;}
   const postScore=p=>`<div class="COMM_SCORE" aria-label="Vote score: ${Number(p.score)||0}"><button ${owner&&isVerified()?'':'disabled title="Verified Pet Owners only"'} data-community-action="votePost" data-target="${H(p.id)}" data-channel-id="${H(p.channelId)}" data-value="1" type="button" aria-label="Upvote" class="${p.myVote===1?'is-voted':''}">${fa('arrow-up')}</button><strong>${Number(p.score)||0}</strong><button ${owner&&isVerified()?'':'disabled title="Verified Pet Owners only"'} data-community-action="votePost" data-target="${H(p.id)}" data-channel-id="${H(p.channelId)}" data-value="-1" type="button" aria-label="Downvote" class="${p.myVote===-1?'is-voted':''}">${fa('arrow-down')}</button></div>`;
   function postCard(p,search=false){const imgs=(p.imageFileIds||[]).map(fid=>`<div class="COMM_POST_IMAGE"><img data-community-image="1" data-post-id="${H(p.id)}" data-file-id="${H(fid)}" loading="lazy" alt="Discussion attachment"><span>Loading image…</span></div>`).join('');
-   return `<article class="COMM_POST"><div class="COMM_POST_CONTENT"><div class="COMM_POST_META"><span class="COMM_SMALL_AVATAR">${avatar(p.authorName)}</span><span class="COMM_META_NAMES"><strong>${H(p.authorName)}</strong><small>${H(date(p.createdAt))}</small></span>${p.channelName?`<button class="COMM_CHANNEL_LINK" type="button" data-community-action="viewChannel" data-id="${H(p.channelId)}">${fa('hashtag')}${H(p.channelName)}</button>`:''}</div><h3>${H(p.title)}</h3><p class="COMM_POST_BODY">${txt(p.body)}</p>${imgs?`<div class="COMM_IMAGE_GRID">${imgs}</div>`:''}<div class="COMM_POST_ACTIONS">${postScore(p)}${button(`${fa('comment-dots')} ${Number(p.commentCount)||0} Comments`,'showComments',`data-id="${H(p.id)}" data-channel-id="${H(p.channelId)}"`,'small')}${(p.authorId===current.user.$id||admin)&&!p.isDeleted?button(`${fa('trash')} Remove`,'deletePost',`data-id="${H(p.id)}" data-channel-id="${H(p.channelId)}"`,'small danger'):''}</div></div></article>`;
+   return `<article class="COMM_POST"><div class="COMM_POST_CONTENT"><div class="COMM_POST_META"><span class="COMM_SMALL_AVATAR" data-community-avatar-user="${H(p.authorId)}" data-community-avatar-post="${H(p.id)}" aria-label="${H(p.authorName)} profile picture">${avatar(p.authorName)}</span><span class="COMM_META_NAMES"><strong>${H(p.authorName)}</strong><small>${H(date(p.createdAt))}</small></span>${p.channelName?`<button class="COMM_CHANNEL_LINK" type="button" data-community-action="viewChannel" data-id="${H(p.channelId)}">${fa('hashtag')}${H(p.channelName)}</button>`:''}</div><h3>${H(p.title)}</h3><p class="COMM_POST_BODY">${txt(p.body)}</p>${imgs?`<div class="COMM_IMAGE_GRID">${imgs}</div>`:''}<div class="COMM_POST_ACTIONS">${postScore(p)}${button(`${fa('comment-dots')} ${Number(p.commentCount)||0} Comments`,'showComments',`data-id="${H(p.id)}" data-channel-id="${H(p.channelId)}"`,'small')}${(p.authorId===current.user.$id||admin)&&!p.isDeleted?button(`${fa('trash')} Remove`,'deletePost',`data-id="${H(p.id)}" data-channel-id="${H(p.channelId)}"`,'small danger'):''}</div></div></article>`;
   }
   const header=(title,sub,buttons='')=>`<div class="COMM_HEAD"><div><span class="COMM_EYEBROW">CITYVETHUB COMMUNITY</span><h1>${H(title)}</h1><p>${H(sub)}</p></div><div class="COMM_TOP_ACTIONS">${buttons}</div></div>`;
   const blank=s=>`<div class="COMM_EMPTY">${fa('comments')}<p>${H(s)}</p></div>`;
@@ -40,6 +41,101 @@
      img.addEventListener('error',()=>{img.hidden=true;if(img.nextElementSibling)img.nextElementSibling.textContent='Image unavailable';},{once:true});
    }catch{img.hidden=true;if(img.nextElementSibling)img.nextElementSibling.textContent='Image unavailable';}
   }));}
+  // Community images are obtained from an authenticated, access-controlled
+  // Function. Do not make the private media bucket public. The signed-in user's
+  // own photo also has a direct session-based fallback so the composer never
+  // relies on another Function execution just to show their profile photo.
+  let avatarErrorNotified=false;
+  const avatarFailures=new Map();
+  function putAvatar(el,url){
+    if(!el?.isConnected||typeof url!=='string'||!url.startsWith('https://'))return;
+    if(el.querySelector('img')?.dataset.avatarUrl===url)return;
+    const fallback=el.dataset.avatarFallback||el.textContent.trim()||'U';
+    el.dataset.avatarFallback=fallback;
+    const img=document.createElement('img');
+    img.className='COMM_AVATAR_IMAGE';img.alt='';img.decoding='async';
+    img.loading='eager';img.dataset.avatarUrl=url;
+    img.hidden=true;
+    for(const previous of el.querySelectorAll('img'))previous.remove();
+    // Keeping initials until the image completes avoids blank avatars or
+    // temporary broken-image icons on slower connections.
+    img.onload=()=>{
+      if(!el.isConnected)return;
+      img.hidden=false;el.replaceChildren(img);
+      avatarFailures.delete(el.dataset.communityAvatarUser);
+    };
+    img.onerror=()=>{
+      if(!el.isConnected)return;
+      el.replaceChildren(document.createTextNode(fallback));
+      avatarCache.delete(el.dataset.communityAvatarUser);
+      avatarFailures.set(el.dataset.communityAvatarUser,Date.now());
+      console.warn('CityVetHub Community: avatar file could not be displayed. Verify the Appwrite Storage file still exists.');
+    };
+    el.append(img);img.src=url;
+  }
+  function avatarIssue(reason){
+    if(avatarErrorNotified)return;
+    avatarErrorNotified=true;
+    // A failed avatar request must be visible, rather than misleadingly
+    // treating every user as having no uploaded profile picture.
+    const composer=container.querySelector('.COMM_COMPOSER');
+    if(composer){
+      const note=document.createElement('div');note.className='COMM_AVATAR_DIAGNOSTIC';
+      note.setAttribute('role','status');
+      note.textContent='Some Community profile photos could not load. Confirm the Phase 4.18 Appwrite Function is active (including tokens.write).';
+      composer.append(note);
+    }
+    console.warn('Community profile photo request:',reason);
+  }
+  async function hydrateSelfAvatar(slots){
+    const ownSlots=slots.filter(el=>el.dataset.communityAvatarSelf==='1');
+    if(!ownSlots.length||!api.tablesDB||!api.storage||!api.config)return;
+    const userId=current.user.$id;
+    try{
+      const own=await api.tablesDB.getRow({databaseId:api.config.databaseId,tableId:api.config.tables.userProfiles,rowId:userId});
+      if(!own?.profileImageId)return;
+      const url=String(api.storage.getFileView({bucketId:api.config.buckets.media,fileId:own.profileImageId}));
+      // Session-accessible self images are only used for this user's own avatar.
+      if(!url.startsWith('https://'))return;
+      for(const el of ownSlots)putAvatar(el,url);
+    }catch(error){console.warn('Community: cannot load the signed-in user photo:',error?.message||error);}
+  }
+  async function hydrateAvatars(scope=container){
+    const slots=[...scope.querySelectorAll('[data-community-avatar-user]')];
+    if(!slots.length)return;
+    // Run alongside the server lookup; never block other authors on self data.
+    void hydrateSelfAvatar(slots);
+    const fresh=(userId)=>{const hit=avatarCache.get(userId);return hit&&hit.expires>Date.now()?hit.url:null;};
+    for(const el of slots){const url=fresh(el.dataset.communityAvatarUser);if(url)putAvatar(el,url);}
+    const pending=slots.filter(el=>!fresh(el.dataset.communityAvatarUser));
+    if(!pending.length)return;
+    const refs=[
+      ...[...new Set(pending.map(x=>x.dataset.communityAvatarPost).filter(Boolean))].map(id=>({type:'postIds',id})),
+      ...[...new Set(pending.map(x=>x.dataset.communityAvatarComment).filter(Boolean))].map(id=>({type:'commentIds',id})),
+      ...[...new Set(pending.map(x=>x.dataset.communityAvatarMember).filter(Boolean))].map(id=>({type:'membershipIds',id}))
+    ];
+    const includeSelf=pending.some(x=>x.dataset.communityAvatarSelf==='1');
+    if(!refs.length&&!includeSelf)return;
+    const chunks=[];for(let i=0;i<refs.length;i+=20)chunks.push(refs.slice(i,i+20));
+    if(!chunks.length)chunks.push([]);
+    for(let batch=0;batch<chunks.length;batch++){
+      const payload={postIds:[],commentIds:[],membershipIds:[],includeSelf:includeSelf&&batch===0};
+      for(const ref of chunks[batch])payload[ref.type].push(ref.id);
+      try{
+        const response=await action('AvatarTokens',payload);
+        const expiry=Date.parse(response?.expiresAt||'');
+        const expires=Number.isFinite(expiry)?Math.min(Date.now()+4*60*1000,expiry-15000):Date.now()+3*60*1000;
+        for(const [userId,url] of Object.entries(response?.avatars||{})){
+          if(typeof url==='string'&&url.startsWith('https://'))avatarCache.set(userId,{url,expires});
+        }
+        for(const el of slots){const url=fresh(el.dataset.communityAvatarUser);if(url)putAvatar(el,url);}
+        if(response?.warnings?.length)avatarIssue(response.warnings.join(', '));
+      }catch(error){
+        avatarIssue(error?.message||error);
+        break;
+      }
+    }
+  }
   async function overviewLoad(){overview=await action('Overview');}
   async function open(mode='community'){active=true;section=mode==='officer-notices'?'notices':'feed';selected=null;searchQuery='';await refresh();}
   function close(){active=false;selected=null;document.querySelector('.COMM_MODAL')?.remove();}
@@ -49,7 +145,7 @@
      else if(section==='channel'&&selected)await renderChannel(selected);
      else if(section==='search'&&searchQuery)await renderSearch(searchQuery);
      else await renderFeed();
-     hydrateImages();
+     hydrateImages();hydrateAvatars();
    }catch(e){if(rev===revision)container.innerHTML=`<div class="COMM_ERROR">${fa('triangle-exclamation')} ${H(handlerErr(e))}<p>Ensure the Community migration and latest Appwrite Function deployment are active.</p></div>`;}
   }
   function renderNotices(){const notes=overview?.notices||[];const top=admin?button(fa('plus')+' Publish announcement','newAnnouncement','','primary'):'';
@@ -62,7 +158,7 @@
   async function renderFeed(){const channels=overview?.channels||[];
     const buttons=`${admin?button(fa('plus')+' Announcement','newAnnouncement','','primary'):''}${owner&&isVerified()?button(fa('plus')+' Create channel','newChannel','','primary'):''}`;
     const activeChannels=channels.filter(c=>c.canRead);
-    container.innerHTML=`<div class="COMM_PAGE">${header('Community','Connect, share pet stories, and learn from Iligan City pet owners.',buttons)}<div id="communityNotice" hidden></div>${owner&&!isVerified()?verifiedNotice():''}<div class="COMM_TABS">${button(fa('house')+' For you','feed','','active')}${button(fa('bullhorn')+' Official notices','notices')}</div><section class="COMM_HERO"><div class="COMM_HERO_COPY"><span>${fa('paw')} YOUR PET COMMUNITY</span><h2>Good conversations.<br>Happier pets.</h2><p>Ask questions, share moments, find your community, and stay informed with official CVO updates.</p></div><div class="COMM_HERO_DECOR" aria-hidden="true">${fa('paw')}</div><div class="COMM_HERO_BADGE">${fa('users')} ${channels.length} ${channels.length===1?'channel':'channels'} to discover</div></section><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_COMPOSER"><div class="COMM_COMPOSER_TOP"><span class="COMM_COMPOSER_AVATAR">${avatar(current.user.name||current.user.email)}</span><button type="button" class="COMM_COMPOSER_PROMPT" data-community-action="${owner&&isVerified()?'newFeedPost':'goProfile'}">${owner&&isVerified()?`What's happening in the pet community?`:'Explore posts from pet owners around Iligan City'}</button></div><div class="COMM_COMPOSER_FOOT"><span>${fa('images')} Share photos and stories</span>${owner&&isVerified()?button(fa('pen')+' Create a post','newFeedPost','','primary small'):`<span>${fa('lock')} Verified owners can post</span>`}</div></section><div class="COMM_FEED_TITLE"><div><h2>Latest discussions</h2><p>From public and accessible community channels</p></div><span class="COMM_FEED_COUNT" id="commPostCount">${fa('spinner fa-spin')} Loading</span></div><div id="commFeedPosts" class="COMM_POST_LIST"><div class="COMM_LOADING">${fa('spinner fa-spin')} Loading discussions…</div></div></main>${officialPreview()}</div></div>`;
+    container.innerHTML=`<div class="COMM_PAGE">${header('Community','Connect, share pet stories, and learn from Iligan City pet owners.',buttons)}<div id="communityNotice" hidden></div>${owner&&!isVerified()?verifiedNotice():''}<div class="COMM_TABS">${button(fa('house')+' For you','feed','','active')}${button(fa('bullhorn')+' Official notices','notices')}</div><section class="COMM_HERO"><div class="COMM_HERO_COPY"><span>${fa('paw')} YOUR PET COMMUNITY</span><h2>Good conversations.<br>Happier pets.</h2><p>Ask questions, share moments, find your community, and stay informed with official CVO updates.</p></div><div class="COMM_HERO_DECOR" aria-hidden="true">${fa('paw')}</div><div class="COMM_HERO_BADGE">${fa('users')} ${channels.length} ${channels.length===1?'channel':'channels'} to discover</div></section><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_COMPOSER"><div class="COMM_COMPOSER_TOP"><span class="COMM_COMPOSER_AVATAR" data-community-avatar-user="${H(current.user.$id)}" data-community-avatar-self="1" aria-label="My profile picture">${avatar(current.user.name||current.user.email)}</span><button type="button" class="COMM_COMPOSER_PROMPT" data-community-action="${owner&&isVerified()?'newFeedPost':'goProfile'}">${owner&&isVerified()?`What's happening in the pet community?`:'Explore posts from pet owners around Iligan City'}</button></div><div class="COMM_COMPOSER_FOOT"><span>${fa('images')} Share photos and stories</span>${owner&&isVerified()?button(fa('pen')+' Create a post','newFeedPost','','primary small'):`<span>${fa('lock')} Verified owners can post</span>`}</div></section><div class="COMM_FEED_TITLE"><div><h2>Latest discussions</h2><p>From public and accessible community channels</p></div><span class="COMM_FEED_COUNT" id="commPostCount">${fa('spinner fa-spin')} Loading</span></div><div id="commFeedPosts" class="COMM_POST_LIST"><div class="COMM_LOADING">${fa('spinner fa-spin')} Loading discussions…</div></div></main>${officialPreview()}</div></div>`;
     bindSearch();
     const at=revision,results=await Promise.allSettled(activeChannels.slice(0,8).map(c=>action('Channel',{channelId:c.id})));
     if(!active||at!==revision||section!=='feed')return;
@@ -80,16 +176,16 @@
     const tools=`${canWrite?button(fa('pen-to-square')+' New discussion','newPost','','primary'):''}${c.isCreator?button(c.privacy==='public'?'Make private':'Make public','togglePrivacy','',''):''}${c.isCreator?button('Join requests','joinRequests','',''):''}`;
     const privacyBadge=`<span class="COMM_TAG ${c.privacy==='private'?'locked':''}">${fa(c.privacy==='private'?'lock':'globe')} ${H(c.privacy)}</span>`;
     container.innerHTML=`<div class="COMM_PAGE COMM_CHANNEL_PAGE">${header('Community', 'Your place to connect with pet people.',button(fa('arrow-left')+' Back to feed','feed','','small'))}<div id="communityNotice" hidden></div><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_CHANNEL_BANNER"><span class="COMM_CHANNEL_BIGICON">${fa(c.privacy==='private'?'lock':'hashtag')}</span><div><div class="COMM_CHANNEL_BANNER_META">Community channel ${privacyBadge}</div><h2>${H(c.name)}</h2><p>${H(c.description||'Connect with the pet owner community.')}</p></div></section><div class="COMM_CHANNEL_TOOLS">${tools}</div>${owner&&!data.verified?verifiedNotice():''}${!c.canRead?`<section class="COMM_LOCKED">${fa('lock')}<h2>This community is private</h2><p>Only approved members can read or participate. The channel creator reviews join requests.</p>${owner&&c.membership==='none'?button('Request to join','requestJoin','','primary'):c.membership==='pending'?'<span class="COMM_TAG">Membership request pending</span>':owner&&c.membership==='rejected'?button('Request again','requestJoin','','primary'):''}</section>`:`<section class="COMM_DISCUSSIONS"><div class="COMM_FEED_TITLE"><div><h2>Discussions</h2><p>Conversations in this channel</p></div><span class="COMM_FEED_COUNT">${data.posts.length} ${data.posts.length===1?'post':'posts'}</span></div><div class="COMM_POST_LIST">${data.posts.length?data.posts.map(p=>postCard({...p,channelName:c.name})).join(''):`<div class="COMM_FEED_EMPTY"><div class="COMM_FEED_EMPTY_ART">${fa('comment-dots')}</div><h3>No discussions yet</h3><p>Be the first to start a conversation in this community.</p>${canWrite?button('Start a discussion','newPost','','primary'):''}</div>`}</div></section>`}</main>${officialPreview()}</div></div>`;
-    bindSearch();hydrateImages();
+    bindSearch(); // refresh() handles photo hydration (avoids duplicate token requests).
   }
   async function showComments(postId){selectedPost=postId;const data=await action('Comments',{postId});const canInteract=owner&&isVerified()&&!!overview.channels.find(c=>c.id===selected&&c.canRead);
-   const comments=data.comments||[];const commentHtml=c=>`<div class="COMM_COMMENT" style="margin-left:${c.parentCommentId?'22':'0'}px"><div class="COMM_POST_META"><span class="COMM_SMALL_AVATAR">${avatar(c.authorName)}</span><b>${H(c.authorName)}</b> · ${H(date(c.createdAt))}</div><p>${txt(c.body)}</p><div class="COMM_COMMENT_ACTIONS">${canInteract?button(fa('arrow-up')+' '+(c.score||0),'commentVoteUp',`data-id="${H(c.id)}"`,'small')+button(fa('arrow-down'),'commentVoteDown',`data-id="${H(c.id)}"`,'small')+button('Reply','replyComment',`data-id="${H(c.id)}"`,'small'):''}${(c.authorId===current.user.$id||admin)&&!c.isDeleted?button('Remove','removeComment',`data-id="${H(c.id)}"`,'small danger'):''}</div></div>`;
+   const comments=data.comments||[];const commentHtml=c=>`<div class="COMM_COMMENT" style="margin-left:${c.parentCommentId?'22':'0'}px"><div class="COMM_POST_META"><span class="COMM_SMALL_AVATAR" data-community-avatar-user="${H(c.authorId)}" data-community-avatar-comment="${H(c.id)}" aria-label="${H(c.authorName)} profile picture">${avatar(c.authorName)}</span><b>${H(c.authorName)}</b> · ${H(date(c.createdAt))}</div><p>${txt(c.body)}</p><div class="COMM_COMMENT_ACTIONS">${canInteract?button(fa('arrow-up')+' '+(c.score||0),'commentVoteUp',`data-id="${H(c.id)}"`,'small')+button(fa('arrow-down'),'commentVoteDown',`data-id="${H(c.id)}"`,'small')+button('Reply','replyComment',`data-id="${H(c.id)}"`,'small'):''}${(c.authorId===current.user.$id||admin)&&!c.isDeleted?button('Remove','removeComment',`data-id="${H(c.id)}"`,'small danger'):''}</div></div>`;
    modal(`Discussion · ${data.post.title}`,`<div class="COMM_COMMENTS">${comments.map(commentHtml).join('')||blank('No comments yet.')}</div>${canInteract?`<div id="commReplyBanner" class="COMM_REPLY_BANNER" hidden>Replying to a comment <button type="button" data-cancel-reply>Cancel reply</button></div><input type="hidden" name="parentCommentId" value=""><label>Write a comment<textarea name="body" maxlength="2000" rows="4" placeholder="Be respectful and helpful" required></textarea></label>`:'<p class="COMM_MUTED">Only verified Pet Owners with access can comment.</p>'}`,async form=>{
      if(!canInteract){throw Error('Verified membership required to comment.');}
      const fd=new FormData(form);
      await action('CreateComment',{postId,body:fd.get('body'),parentCommentId:fd.get('parentCommentId')||''});await showComments(postId);
    },'Post comment');
-   const dialog=document.querySelector('.COMM_MODAL');const submit=dialog?.querySelector('[type="submit"]');if(!canInteract&&submit)submit.hidden=true;
+   const dialog=document.querySelector('.COMM_MODAL');hydrateAvatars(dialog||container);const submit=dialog?.querySelector('[type="submit"]');if(!canInteract&&submit)submit.hidden=true;
    dialog?.addEventListener('click',async e=>{if(e.target.closest('[data-cancel-reply]')){dialog.querySelector('[name=parentCommentId]').value='';dialog.querySelector('#commReplyBanner').hidden=true;return;}const b=e.target.closest('[data-community-action]');if(!b)return;
      b.disabled=true;try{const kind=b.dataset.communityAction,cid=b.dataset.id;
        if(kind==='commentVoteUp'||kind==='commentVoteDown')await action('Vote',{targetType:'comment',targetId:cid,value:kind==='commentVoteUp'?1:-1});
@@ -120,8 +216,8 @@
      const fd=new FormData(form),files=form.querySelector('[name="images"]').files;const imageFileIds=await uploadFiles(files);const channelId=fromFeed?fd.get('channelId'):selected;await action('CreatePost',{channelId,title:fd.get('title'),body:fd.get('body'),imageFileIds});if(fromFeed){section='feed';await refresh();}else{await renderChannel(selected);}},'Publish discussion');}
   function submitAnnouncement(){modal('Publish official CVO announcement',`<label>Announcement title<input name="title" maxlength="140" required></label><label>Message<textarea name="body" maxlength="2000" rows="6" required></textarea></label><label>Who should receive this announcement?<select name="audience"><option value="owners">Pet Owners</option><option value="officers">Field Officers</option><option value="both">Both Pet Owners and Field Officers</option></select></label>`,async form=>{await action('PublishAnnouncement',Object.fromEntries(new FormData(form)));section='notices';await refresh();},'Publish announcement');}
   async function showJoinRequests(){const data=await action('JoinRequests',{channelId:selected});const items=data.requests||[];
-    modal('Private channel membership requests',items.length?items.map(r=>`<div class="COMM_REQUEST"><span><strong>${H(r.userName)}</strong><small>${H(date(r.requestedAt))}</small></span>${button('Approve','approveJoin',`data-id="${H(r.id)}"`,'small primary')}${button('Decline','declineJoin',`data-id="${H(r.id)}"`,'small danger')}</div>`).join(''):blank('No pending membership requests.'),async()=>{},'Close');
-    document.querySelector('.COMM_MODAL [type=submit]').hidden=true;
+    modal('Private channel membership requests',items.length?items.map(r=>`<div class="COMM_REQUEST"><span class="COMM_SMALL_AVATAR" data-community-avatar-user="${H(r.userId)}" data-community-avatar-member="${H(r.id)}" aria-label="${H(r.userName)} profile picture">${avatar(r.userName)}</span><span class="COMM_REQUEST_DETAILS"><strong>${H(r.userName)}</strong><small>${H(date(r.requestedAt))}</small></span>${button('Approve','approveJoin',`data-id="${H(r.id)}"`,'small primary')}${button('Decline','declineJoin',`data-id="${H(r.id)}"`,'small danger')}</div>`).join(''):blank('No pending membership requests.'),async()=>{},'Close');
+    hydrateAvatars(document.querySelector('.COMM_MODAL')||container);document.querySelector('.COMM_MODAL [type=submit]').hidden=true;
     document.querySelector('.COMM_MODAL').addEventListener('click',async e=>{const b=e.target.closest('[data-community-action]');if(!b)return;const status=b.dataset.communityAction==='approveJoin'?'approved':'rejected';if(!confirm(`Are you sure you want to ${status==='approved'?'approve':'decline'} this request?`))return;
       try{await action('ReviewJoin',{channelId:selected,membershipId:b.dataset.id,status});document.querySelector('.COMM_MODAL')?.remove();await showJoinRequests();}catch(x){alert(handlerErr(x));}
     });
@@ -142,8 +238,8 @@
         await action('SetPrivacy',{channelId:selected,privacy});return refresh();}
       if(kind==='joinRequests')return showJoinRequests();
       if(kind==='showComments'){if(b.dataset.channelId)selected=b.dataset.channelId;return showComments(channelId);}
-      if(kind==='votePost'){if(!owner||!isVerified())return message('Only verified Pet Owners may vote.');await action('Vote',{targetType:'post',targetId:b.dataset.target,value:Number(b.dataset.value)});if(section==='feed'){return refresh();}await renderChannel(selected);return hydrateImages();}
-      if(kind==='deletePost'){if(!confirm('Remove this discussion and its images from Community?'))return;await action('DeletePost',{postId:channelId});if(section==='feed'){return refresh();}await renderChannel(selected);return hydrateImages();}
+      if(kind==='votePost'){if(!owner||!isVerified())return message('Only verified Pet Owners may vote.');await action('Vote',{targetType:'post',targetId:b.dataset.target,value:Number(b.dataset.value)});if(section==='feed'){return refresh();}await renderChannel(selected);hydrateImages();return hydrateAvatars();}
+      if(kind==='deletePost'){if(!confirm('Remove this discussion and its images from Community?'))return;await action('DeletePost',{postId:channelId});if(section==='feed'){return refresh();}await renderChannel(selected);hydrateImages();return hydrateAvatars();}
       if(kind==='deactivateAnnouncement'){if(!confirm('Deactivate this announcement?'))return;await action('DeactivateAnnouncement',{announcementId:channelId});return refresh();}
     }catch(x){message(handlerErr(x));}
   });

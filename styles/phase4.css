@@ -283,3 +283,45 @@
 .P47_OWNER_REPORT .leaflet-container{width:100%;height:100%}
 @media(max-width:1050px){.P47_OWNER_REPORT>.P4_SIDE_CARD{min-height:220px!important}.P47_OWNER_REPORT>.P4_MAP_CARD{height:auto!important;min-height:0!important}.P47_OWNER_REPORT>.P4_MAP_CARD .P4_MAP{height:clamp(320px,48dvh,520px)!important;min-height:320px!important}}
 @media(max-width:650px){.P47_OWNER_REPORT>.P4_MAP_CARD .P4_MAP{height:370px!important;min-height:320px!important}}
+
+/* Phase 4.20 — Admin incident triage, archive and outbreak map cues */
+.CV420_REPORT_CARD{min-height:0}
+.CV420_REPORT_TABS{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 16px;padding:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
+.CV420_TAB{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:1;min-width:145px;padding:10px 9px;border:0;border-radius:9px;color:var(--sub);font-size:11px;font-weight:750;background:transparent;cursor:pointer}
+.CV420_TAB[aria-pressed="true"]{background:var(--surface);color:#3478f6;box-shadow:0 2px 10px #12254b16}
+.CV420_TAB b{padding:3px 7px;border-radius:99px;background:#e7efff;color:#3478f6;font-size:10px}
+.CV420_REPORT_ACTIONS{width:100%;display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:6px 0 2px}
+.CV420_ACTION{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--surface);color:var(--ink);font-size:10px;font-weight:700;display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.CV420_ACTION:hover{border-color:#3478f6;color:#3478f6}
+.CV420_ACTION:disabled{cursor:progress;opacity:.6}
+.CV420_DANGER{color:#c62c36;border-color:#f0c8cc}
+.CV420_DANGER:hover{background:#fff1f2;color:#a7252c;border-color:#e998a0}
+.CV420_OUTBREAKS{flex:0 0 auto;max-height:190px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.CV420_OUTBREAK_LIST{overflow:auto;min-height:0;max-height:145px;overscroll-behavior:contain;padding:0 2px 1px}
+.CV420_OUTBREAK_ROW{display:flex;gap:8px;align-items:center;border-top:1px solid var(--line);padding:9px 0}
+.CV420_OUTBREAK_META{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.CV420_OUTBREAK_META strong{font-size:10px;color:var(--ink);overflow-wrap:anywhere}
+.CV420_OUTBREAK_META small{font-size:10px;color:var(--sub)}
+.CV420_OUTBREAK_DOT{width:9px;height:9px;border-radius:50%;background:#94a3b8;flex-shrink:0}
+.CV420_DOT_ACTIVE{background:#ef4444;animation:CV420_DOT_PULSE 1.6s ease-in-out infinite}
+.CV420_OUTBREAK_LABEL{border:1px solid #ffb0b0;background:#fff0f0;color:#bf1d26!important;font-size:9px!important;line-height:1;border-radius:99px;padding:5px 6px;font-weight:850;letter-spacing:.03em}
+@keyframes CV420_DOT_PULSE{0%,100%{box-shadow:0 0 0 0 #dc26264d;opacity:.8}50%{box-shadow:0 0 0 7px #ef444400;opacity:1}}
+/* These animations apply to actual loaded GeoJSON SVG polygons, not guessed barangay shapes. */
+.leaflet-overlay-pane path.CV420_OUTBREAK_BOUNDARY{stroke:#dc2626!important;fill:#ef4444!important;animation:CV420_BOUNDARY_BEAT 1.7s ease-in-out infinite}
+.leaflet-overlay-pane path.CV420_OUTBREAK_BEACON{stroke:#dc2626!important;fill:#f43f5e!important;transform-box:fill-box;transform-origin:center;animation:CV420_BEACON_BEAT 1.6s ease-in-out infinite;pointer-events:auto}
+@keyframes CV420_BOUNDARY_BEAT{0%,100%{stroke-width:3.5px;stroke-opacity:.95;fill-opacity:.22;filter:drop-shadow(0 0 0px #dc262600)}50%{stroke-width:6px;stroke-opacity:1;fill-opacity:.43;filter:drop-shadow(0 0 5px #f87171)}}
+@keyframes CV420_BEACON_BEAT{0%,100%{stroke-opacity:1;fill-opacity:.6;stroke-width:2px;filter:drop-shadow(0 0 0px #dc262600)}50%{stroke-opacity:1;fill-opacity:.26;stroke-width:5px;filter:drop-shadow(0 0 9px #dc2626)}}
+@media (prefers-reduced-motion:reduce){.CV420_DOT_ACTIVE,.leaflet-overlay-pane path.CV420_OUTBREAK_BOUNDARY,.leaflet-overlay-pane path.CV420_OUTBREAK_BEACON{animation:none!important}}
+@media(max-width:1050px){.CV420_OUTBREAKS{max-height:280px}.CV420_OUTBREAK_LIST{max-height:235px}}
+@media(max-width:650px){.CV420_TAB{min-width:0;font-size:10px}.CV420_OUTBREAK_ROW{align-items:start}.CV420_OUTBREAK_ROW .CV420_ACTION{padding:7px 8px}}
+/* Keep report actions reachable even with many outbreaks or a compact viewport. */
+@media(min-width:1051px){
+  .CV49_SURVEILLANCE_LAYOUT>.P4_SURVEILLANCE_SIDE{overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain;padding-right:5px}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:0 0 auto!important;height:clamp(345px,48dvh,550px);min-height:345px!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{height:auto!important;min-height:140px!important;flex:1 1 auto!important;overflow-y:auto!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_OUTBREAKS{flex:0 0 auto!important;max-height:205px}
+}
+@media(max-width:1050px){
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:none!important;min-height:360px!important;height:440px}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:160px!important;max-height:none!important;height:auto!important;flex:1!important;overflow-y:auto!important}
+}

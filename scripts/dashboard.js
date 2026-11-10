@@ -85,13 +85,13 @@
     async function refreshOverview(){
         const metrics=document.getElementById('dashboardMetrics');
         const status=document.getElementById('metricsStatus');
-        const keyMap=['pets','petRequests',role==='owner'?'ownerAlerts':'diseaseAlerts','adoptionListings'];
+        const keyMap=role==='officer'?['pets','medical','diseaseReports','diseaseAlerts']:['pets','petRequests',role==='owner'?'ownerAlerts':'diseaseAlerts','adoptionListings'];
         try{
             const counts=await Promise.all(keyMap.map(async key=>{
                 const result=await api.tablesDB.listRows({databaseId:api.config.databaseId,tableId:api.config.tables[key],queries:[window.Appwrite.Query.limit(100)]});
-                return key==='diseaseAlerts'||key==='ownerAlerts'?(result.rows||[]).filter(r=>r.isActive).length:key==='adoptionListings'?(result.rows||[]).filter(r=>r.isActive).length:(result.rows||[]).length;
+                return key==='diseaseAlerts'||key==='ownerAlerts'?(result.rows||[]).filter(r=>r.isActive).length:key==='adoptionListings'?(result.rows||[]).filter(r=>r.isActive).length:key==='diseaseReports'?(result.rows||[]).filter(r=>r.status!=='archived').length:(result.rows||[]).length;
             }));
-            const labels=['Verified pets','Registration requests','Active alerts','Adoption listings'];
+            const labels=role==='officer'?['Verified registry pets','Official medical entries','Incident reports','Active staff alerts']:['Verified pets','Registration requests','Active alerts','Adoption listings'];
             metrics.replaceChildren();
             labels.forEach((label,i)=>{
                 const card=document.createElement('div');card.className='CV_STAT';

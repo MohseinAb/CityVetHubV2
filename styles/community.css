@@ -174,3 +174,20 @@
 @media(max-width:1260px){.COMM_SOCIAL_GRID{grid-template-columns:minmax(210px,245px) minmax(0,1fr)}.COMM_RIGHT_RAIL{display:none}.COMM_HERO_DECOR{right:9%}}
 @media(max-width:920px){.COMM_SOCIAL_GRID{grid-template-columns:minmax(0,1fr)}.COMM_CHANNEL_RAIL{position:static}.COMM_RIGHT_RAIL{display:flex;position:static}.COMM_CHANNEL_WIDGET{padding:15px}.COMM_CHANNEL_LIST{display:flex;gap:9px;overflow-x:auto;max-height:none}.COMM_CHANNEL{min-width:195px;max-width:240px}.COMM_RAIL_FOOT{display:none}.COMM_HERO{min-height:175px;padding:25px 28px}.COMM_HERO_DECOR{display:none}.COMM_HERO_BADGE{display:none}}
 @media(max-width:610px){.COMM_PAGE .COMM_HEAD{align-items:start}.COMM_HEAD h1{font-size:27px}.COMM_HERO{min-height:170px;padding:23px 20px}.COMM_HERO h2{font-size:28px!important}.COMM_HERO p{font-size:11px!important}.COMM_COMPOSER{padding:13px}.COMM_COMPOSER_FOOT{margin-left:0}.COMM_SOCIAL_GRID{gap:14px}.COMM_FEED_EMPTY{padding:35px 20px}.COMM_POST{padding:15px}.COMM_POST_ACTIONS{gap:6px;flex-wrap:wrap}.COMM_CHANNEL_LINK{font-size:10px;max-width:40%}.COMM_CHANNEL_BANNER{padding:16px}.COMM_CHANNEL_BIGICON{width:52px;height:52px;font-size:19px}.COMM_CHANNEL_BANNER h2{font-size:19px}.COMM_COMPOSER_PROMPT{font-size:12px}}
+
+
+/* Phase 4.17 — Community author/profile photos. Initials remain the fallback. */
+.COMM_SMALL_AVATAR,.COMM_COMPOSER_AVATAR{
+ overflow:hidden;position:relative;isolation:isolate;line-height:1;
+ border:1px solid rgba(90,130,190,.18);border-radius:50%;
+}
+.COMM_SMALL_AVATAR .COMM_AVATAR_IMAGE,.COMM_COMPOSER_AVATAR .COMM_AVATAR_IMAGE{
+ display:block;width:100%;height:100%;object-fit:cover;object-position:center;
+ border-radius:inherit;min-width:100%;min-height:100%;
+}
+.COMM_REQUEST>.COMM_SMALL_AVATAR{flex:0 0 40px}
+.COMM_REQUEST>.COMM_REQUEST_DETAILS{flex:1;min-width:0}
+
+/* Phase 4.18: visible diagnostics when external avatar tokens fail. */
+.COMM_AVATAR_DIAGNOSTIC{padding:9px 13px;margin:9px 13px 0;border:1px solid #f0c57f;background:#fff7e7;color:#8a5300;font-size:11px;line-height:1.45;border-radius:9px}
+.dark-theme .COMM_AVATAR_DIAGNOSTIC{background:#392d1c;border-color:#6e5425;color:#ffdc9d}

@@ -114,5 +114,5 @@
         return error?.message || 'Something went wrong. Please try again.';
     }
 
-    window.CityVet = Object.freeze({ version:'4.15.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, context, login, register, logout, destination, readableError });
+    window.CityVet = Object.freeze({ version:'4.19.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, context, login, register, logout, destination, readableError });
 })();
