@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "appwrite": {
+      "command": "uvx",
+      "args": ["mcp-server-appwrite"],
+      "env": {
+        "APPWRITE_ENDPOINT": "https://sgp.cloud.appwrite.io/v1",
+        "APPWRITE_PROJECT_ID": "6aeff5c9002718442fdf",
+        "APPWRITE_API_KEY": "standard_cce51478de85b7e0fcfa6baad3f76c5d9b682a20d2587c26734f1d8cc2832039fe25c1c29d4032f7a99ab9d8cd87c08943fa756122e814a048436ca534a87416455f8e7284b462083946d4e41e43f4200559c3095139921d9678646dde0dcb298012e2a2d7fb2a310725a95ece2d7ab6daf0ac190820d9289a0367459c7c94e9"
+      }
+    }
+  }
+}

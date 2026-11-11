@@ -21,5 +21,8 @@
         try{await api.logout();window.location.replace('./login.html');}
         catch(e){msg.textContent=api.readableError(e);logout.disabled=false;}
     });
+    api.subscribeRealtime?.(()=>checkStatus());
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkStatus();});
+    setInterval(()=>{if(!document.hidden)checkStatus();},5000);
     checkStatus();
 })();

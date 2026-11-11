@@ -17,6 +17,10 @@
         if (error.code === 401) return window.location.replace('./login.html');
         return fail(api.readableError(error));
     }
+    if (current.user.prefs?.requireEmailVerification && !current.user.emailVerification) {
+        try { await api.logout(); } catch {}
+        return window.location.replace('./login.html?verify=sent&email=' + encodeURIComponent(current.user.email || ''));
+    }
     if (current.role === 'pending_officer') return window.location.replace('./pending.html');
     const ROLE_NAMES = {admin:'Administrator',officer:'Field Officer',owner:'Pet Owner'};
     const pageDefs = {
@@ -34,7 +38,7 @@
     };
     const modulesByRole = {
         admin: ['home','pets','medical','surveillance','alerts','community','adoptions','traceability','users','reports','profile'],
-        officer: ['home','pets','medical','surveillance','alerts','traceability','profile'],
+        officer: ['home','pets','medical','surveillance','alerts','community','traceability','profile'],
         owner: ['home','pets','medical','surveillance','community','adoptions','traceability','profile']
     };
     const role = current.role;
@@ -166,7 +170,7 @@
         document.getElementById('registryPanel').hidden = key!=='pets';
         if (key==='pets') {
             if (!openRegistry) openRegistry = window.CityVetRegistry.mount({ api, current });
-            else openRegistry.reload();
+            else openRegistry.reload(true);
         }
         
         // Toggle feature panels (safely closing what can be closed)
@@ -176,15 +180,17 @@
         if(key!=='home' && key!=='pets') {
             if (key==='community' || (key==='alerts' && role==='officer')) {
                 phase4Hub.close();
+                featureHub.close?.();
                 if (!communityHub) { panel.textContent='Community scripts did not load.'; }
                 else communityHub.open(key==='alerts' ? 'officer-notices' : 'community');
             } else {
                 communityHub?.close();
-                if (['surveillance','reports','profile'].includes(key)) phase4Hub.open(key);
+                if (['surveillance','reports','profile'].includes(key)) { featureHub.close?.(); phase4Hub.open(key); }
                 else { phase4Hub.close(); featureHub.open(key); }
             }
         } else {
             phase4Hub.close();
+            featureHub.close?.();
             communityHub?.close();
         }
         
@@ -261,20 +267,58 @@
        }catch{/* Community migration not active yet; other pages remain available. */}
     }
     await checkCommunityAnnouncements();
-    // Realtime is available in the current Appwrite SDK; an on-focus refresh
-    // catches messages missed while the browser was sleeping or disconnected.
-    try{
-      const channel=`tablesdb.${api.config.databaseId}.tables.${alertTable}.rows`;
-      if(window.Appwrite.Realtime&&api.client){
-        const live=new window.Appwrite.Realtime(api.client);
-        Promise.resolve(live.subscribe([channel],event=>{
-          const row=event?.payload;
-          if(row?.$id&&!seenAlerts.has(row.$id)&&row.isActive){seenAlerts.add(row.$id);showLiveAlert(row);}
-        })).catch(()=>{});
-      }else if(api.client?.subscribe){api.client.subscribe(channel,event=>{if(event?.payload?.isActive&&!seenAlerts.has(event.payload.$id)){seenAlerts.add(event.payload.$id);showLiveAlert(event.payload);}});}
-    }catch{/* Focus and polling provide fallback on older SDK builds. */}
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkAlertFeed();checkCommunityAnnouncements();}});
-    setInterval(()=>{checkAlertFeed();checkCommunityAnnouncements();},60000);
+    // Realtime + automatic background sync for all tables and modules.
+    let syncTimer=null,pendingSync=false;
+    function canRunBackgroundSync(){
+        const activeEl=document.activeElement;
+        if(activeEl&&['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName)&&activeEl.id!=='searchInput'&&!activeEl.closest('.P4_SIDE_FILTERS,.CV49_ALERT_FILTERS,.CV_FILTER_BOX'))return false;
+        const modals=[...document.querySelectorAll('.CV_MODAL,.COMM_MODAL')];
+        const hasBlockingModal=modals.some(m=>!m.classList.contains('P46_DETAILS_MODAL')&&!m.classList.contains('CV422_REPORT_MODAL')&&!m.hasAttribute('data-comments-post-id'));
+        return !hasBlockingModal;
+    }
+    async function refreshActiveModule(){
+        if(!canRunBackgroundSync()){pendingSync=true;return;}
+        pendingSync=false;
+        loadHeaderAvatar();
+        checkAlertFeed();
+        checkCommunityAnnouncements();
+        const activeKey=document.querySelector('#sideNav .is-active')?.dataset.module||'home';
+        if(activeKey==='home'){
+            if(role==='owner'){
+                loadOwnerFeaturedAdoptions();
+                loadOwnerCommunityDiscussions();
+                loadOwnerAnnouncements();
+            }else{
+                refreshOverview();
+            }
+        }else if(activeKey==='pets'){
+            openRegistry?.reload(true);
+        }else if(activeKey==='community'||(activeKey==='alerts'&&role==='officer')){
+            communityHub?.refresh(true);
+        }else if(['surveillance','reports','profile'].includes(activeKey)){
+            if(activeKey!=='profile'||!document.activeElement?.closest('#profileInfoForm'))phase4Hub.refresh(true);
+        }else{
+            featureHub.refresh?.(true);
+        }
+    }
+    function scheduleDynamicSync(delay=380){
+        clearTimeout(syncTimer);
+        syncTimer=setTimeout(()=>refreshActiveModule(),delay);
+    }
+    api.subscribeRealtime?.(event=>{
+        const row=event?.payload;
+        if(row?.$id&&alertTable&&(event?.channels||[]).some(c=>c.includes(alertTable))&&!seenAlerts.has(row.$id)&&row.isActive){
+            seenAlerts.add(row.$id);
+            showLiveAlert(row);
+        }
+        scheduleDynamicSync(350);
+    });
+    window.addEventListener('cityvet:data-changed',e=>{
+        if(e?.detail?.source==='local')scheduleDynamicSync(450);
+    });
+    document.addEventListener('focusout',()=>{if(pendingSync)scheduleDynamicSync(300);});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleDynamicSync(150);});
+    setInterval(()=>{if(!document.hidden)scheduleDynamicSync(100);},20000);
     overlay.hidden = true;
     view.hidden = false;
 

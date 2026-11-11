@@ -119,6 +119,10 @@
 .COMM_POST_META{display:flex;align-items:center;gap:10px;margin-bottom:15px}
 .COMM_SMALL_AVATAR{height:40px;width:40px;flex:none;background:linear-gradient(145deg,#dce8ff,#c4d9ff);font-size:12px;color:#265fbb}
 .COMM_META_NAMES{display:flex;flex-direction:column;gap:3px}
+.COMM_AUTHOR_LINE{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.COMM_ROLE_BADGE{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;line-height:1.4;letter-spacing:.15px}
+.COMM_ROLE_BADGE.is-admin{background:#fff0ea;color:#c2410c;border:1px solid #ffd5c2}
+.COMM_ROLE_BADGE.is-officer{background:#eaf2ff;color:#1d4ed8;border:1px solid #c9ddff}
 .COMM_META_NAMES strong{font-size:13px;color:var(--ink)}
 .COMM_META_NAMES small{font-size:11px;color:var(--sub)}
 .COMM_CHANNEL_LINK{margin-left:auto;color:#316fdb;border:1px solid #d5e4ff;border-radius:999px;padding:7px 10px;background:#f3f7ff;font-size:11px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;max-width:45%;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}

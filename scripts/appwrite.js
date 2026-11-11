@@ -15,6 +15,14 @@
     const tablesDB = ready ? new window.Appwrite.TablesDB(client) : null;
     const functions = ready ? new window.Appwrite.Functions(client) : null;
     const storage = ready ? new window.Appwrite.Storage(client) : null;
+    const READ_ONLY_ACTIONS = new Set([
+        'communityOverview', 'communityChannel', 'communityComments', 'communitySearch',
+        'communityImageToken', 'communityAvatarTokens', 'communityOfficialNotices',
+        'getStaffPetDirectory', 'resolveMedicalRecorders', 'listOwnListingApplications',
+        'getAdoptionPreferences', 'resolveAdoptionApplicationNames', 'listUsers',
+        'openVerificationDocument', 'resolveReporterRoles', 'getIncidentReportDetails',
+        'ensurePetPassport', 'communityJoinRequests'
+    ]);
     async function operate(action, payload={}) {
         if (!ready) throw new Error('Appwrite is not configured.');
         const result = await functions.createExecution({
@@ -38,7 +46,41 @@
                 `Backend returned ${status ? 'HTTP '+status : 'an unsuccessful response'} without details.`;
             throw new Error(message + id + ' Check the matching Function execution for details.');
         }
+        if (!READ_ONLY_ACTIONS.has(action)) {
+            try {
+                window.dispatchEvent(new CustomEvent('cityvet:data-changed', { detail: { action, source: 'local' } }));
+            } catch {}
+        }
         return body.data;
+    }
+
+    function subscribeRealtime(onEvent) {
+        if (!ready || !client) return () => {};
+        const tableValues = Object.values(config.tables || {}).filter(Boolean);
+        const channels = [
+            ...tableValues.map(t => `tablesdb.${config.databaseId}.tables.${t}.rows`),
+            ...tableValues.map(t => `databases.${config.databaseId}.collections.${t}.documents`)
+        ];
+        const handler = (event) => {
+            try {
+                window.dispatchEvent(new CustomEvent('cityvet:data-changed', { detail: { source: 'realtime', event } }));
+                if (typeof onEvent === 'function') onEvent(event);
+            } catch {}
+        };
+        try {
+            if (window.Appwrite.Realtime) {
+                const live = new window.Appwrite.Realtime(client);
+                const sub = live.subscribe(channels, handler);
+                Promise.resolve(sub).catch(() => {});
+                return () => {
+                    Promise.resolve(sub).then(s => s?.close?.() || s?.unsubscribe?.()).catch(() => {});
+                };
+            }
+            if (typeof client.subscribe === 'function') {
+                return client.subscribe(channels, handler);
+            }
+        } catch {}
+        return () => {};
     }
 
     async function context() {
@@ -60,6 +102,23 @@
         return account.createEmailPasswordSession({ email, password });
     }
 
+    async function sendVerificationEmail(redirectUrl) {
+        if (!ready) throw new Error('System is not configured.');
+        const url = redirectUrl || new URL('./login.html', window.location.href).href;
+        if (typeof account.createEmailVerification === 'function') {
+            return account.createEmailVerification({ url });
+        }
+        return account.createVerification({ url });
+    }
+
+    async function verifyEmail(userId, secret) {
+        if (!ready) throw new Error('System is not configured.');
+        if (typeof account.updateEmailVerification === 'function') {
+            return account.updateEmailVerification({ userId, secret });
+        }
+        return account.updateVerification({ userId, secret });
+    }
+
     async function register({ name, email, password, requestedRole }) {
         if (!ready) throw new Error('Appwrite is not configured. Open scripts/config.js first.');
         if (!['owner', 'officer'].includes(requestedRole)) throw new Error('Choose a valid registration type.');
@@ -67,10 +126,17 @@
         await account.create({ userId: window.Appwrite.ID.unique(), name, email, password });
         await account.createEmailPasswordSession({ email, password });
         try {
-            await account.updatePrefs({ prefs: { requestedRole } });
+            await account.updatePrefs({ prefs: { requestedRole, requireEmailVerification: true } });
         } catch (error) {
             // Account creation succeeded even if preferences could not be saved.
             throw new Error('Your account was created, but setup was incomplete. Sign in and contact an administrator. ' + readableError(error));
+        }
+        let emailSent = false;
+        try {
+            await sendVerificationEmail(new URL('./login.html', window.location.href).href);
+            emailSent = true;
+        } catch (error) {
+            console.warn('Email verification could not be sent:', error?.message || error);
         }
         if (requestedRole === 'officer') {
             // A trusted Appwrite Function blocks the Auth user until CVO approval.
@@ -81,9 +147,10 @@
                 try { await logout(); } catch {}
                 throw new Error('Field Officer account was created but access could not be safely disabled. Ask the CVO to verify its pending status. ' + readableError(error));
             }
-            return {role:'pending_officer'};
+            return { role: 'pending_officer', emailVerificationRequired: true, emailSent };
         }
-        return context();
+        try { await logout(); } catch {}
+        return { role: 'owner', emailVerificationRequired: true, emailSent };
     }
 
     async function logout() {
@@ -114,5 +181,5 @@
         return error?.message || 'Something went wrong. Please try again.';
     }
 
-    window.CityVet = Object.freeze({ version:'4.19.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, context, login, register, logout, destination, readableError });
+    window.CityVet = Object.freeze({ version:'4.22.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, subscribeRealtime, context, login, register, logout, sendVerificationEmail, verifyEmail, destination, readableError });
 })();

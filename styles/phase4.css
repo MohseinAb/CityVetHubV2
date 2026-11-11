@@ -317,11 +317,17 @@
 /* Keep report actions reachable even with many outbreaks or a compact viewport. */
 @media(min-width:1051px){
   .CV49_SURVEILLANCE_LAYOUT>.P4_SURVEILLANCE_SIDE{overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain;padding-right:5px}
-  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:0 0 auto!important;height:clamp(345px,48dvh,550px);min-height:345px!important}
-  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{height:auto!important;min-height:140px!important;flex:1 1 auto!important;overflow-y:auto!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:0 0 auto!important;height:clamp(460px,62dvh,680px);min-height:460px!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{height:auto!important;min-height:240px!important;max-height:560px!important;flex:1 1 auto!important;overflow-y:auto!important}
   .CV49_SURVEILLANCE_LAYOUT .CV420_OUTBREAKS{flex:0 0 auto!important;max-height:205px}
 }
 @media(max-width:1050px){
-  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:none!important;min-height:360px!important;height:440px}
-  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:160px!important;max-height:none!important;height:auto!important;flex:1!important;overflow-y:auto!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{flex:none!important;min-height:440px!important;height:540px}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:240px!important;max-height:none!important;height:auto!important;flex:1!important;overflow-y:auto!important}
 }
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS{gap:8px}
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS .P4_STAT{padding:11px 13px;border-radius:13px}
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS .P4_STAT_TOP{font-size:10px;gap:8px}
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS .P4_STAT_TOP i{font-size:12px}
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS .P4_STAT strong{font-size:21px;margin:5px 0 3px;letter-spacing:-.5px}
+.CV49_SURVEILLANCE_LAYOUT .P4_QUAD_STATS .P4_STAT small{font-size:9px}

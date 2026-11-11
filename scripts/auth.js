@@ -28,23 +28,53 @@
     function updateRoleHelp() {
         const role = roleSelect.value;
         roleHelper.textContent = mode === 'register'
-            ? (role === 'officer' ? 'Field Officer accounts require CVO approval. You cannot register as Admin.' : 'Pet Owners can register and sign in immediately.')
-            : (role === 'admin' ? 'Administrator access requires an Appwrite Admin Team membership.'
+            ? (role === 'officer' ? 'Field Officer accounts require email verification and CVO approval. You cannot register as Admin.' : 'Pet Owners receive a verification email to activate their account.')
+            : (role === 'admin' ? 'Administrator access requires an Admin Team membership.'
             : role === 'officer' ? 'Field Officer access requires an approved Team membership.'
             : 'Use the email and password you registered with.');
     }
     roleSelect.addEventListener('change', updateRoleHelp);
     updateRoleHelp();
-    if(new URLSearchParams(window.location.search).get('officer')==='pending')show('Field Officer account created. Sign-in will be available after Administrator approval.','success');
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('officer') === 'pending') {
+        show('Field Officer account created! Please verify your email via the link sent to your inbox. Sign-in will be available after Administrator approval.', 'success');
+    } else if (params.get('verify') === 'sent') {
+        const targetEmail = params.get('email') || 'your email address';
+        show(`Account created! A verification email has been sent to ${targetEmail}. Please click the link in your email to verify your account before signing in.`, 'success');
+    }
 
     if (!api.ready) {
-        show('Set your Appwrite endpoint and project ID in scripts/config.js first.');
+        show('Set your endpoint and project ID in scripts/config.js first.');
     } else {
-        api.context().then(async c => {if(c.role==='pending_officer'){await api.logout();show('Your Field Officer account is awaiting CVO approval. You cannot sign in until an Administrator approves it.');return;}window.location.replace(api.destination(c.role));})
-            .catch(error => {
+        const verifyUserId = params.get('userId');
+        const verifySecret = params.get('secret');
+        if (verifyUserId && verifySecret) {
+            show('Verifying your email address…', 'success');
+            api.verifyEmail(verifyUserId, verifySecret)
+                .then(() => {
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    show('Email verified successfully! You may now sign in.', 'success');
+                })
+                .catch(error => {
+                    show('Email verification could not be completed: ' + api.readableError(error));
+                });
+        } else {
+            api.context().then(async c => {
+                if (c.user.prefs?.requireEmailVerification && !c.user.emailVerification) {
+                    await api.logout();
+                    return;
+                }
+                if (c.role === 'pending_officer') {
+                    await api.logout();
+                    show('Your Field Officer account is awaiting CVO approval. You cannot sign in until an Administrator approves it.');
+                    return;
+                }
+                window.location.replace(api.destination(c.role));
+            }).catch(error => {
                 // 401 means not signed in; other errors should be visible.
                 if (error?.code !== 401) show(api.readableError(error));
             });
+        }
     }
 
     form.addEventListener('submit', async event => {
@@ -69,14 +99,22 @@
                 const result = await api.register({
                     name: document.getElementById('fullName').value.trim(), email, password, requestedRole: selectedRole
                 });
-                if(result.role==='pending_officer'){
+                if (result.role === 'pending_officer') {
                     try { await api.logout(); } catch {}
                     window.location.replace('./login.html?officer=pending');
-                } else window.location.replace(api.destination(result.role));
+                } else {
+                    window.location.replace('./login.html?verify=sent&email=' + encodeURIComponent(email));
+                }
             } else {
                 await api.login(email, password);
                 const c = await api.context();
-                if(c.role==='pending_officer'){
+                if (c.user.prefs?.requireEmailVerification && !c.user.emailVerification) {
+                    try { await api.sendVerificationEmail(new URL('./login.html', window.location.href).href); } catch {}
+                    await api.logout();
+                    show('Please verify your email address before signing in. A verification link has been sent to ' + email + '.');
+                    return;
+                }
+                if (c.role === 'pending_officer') {
                     await api.logout();
                     show('Field Officer approval is still pending. An Administrator must verify your account before you can sign in.');
                     return;
