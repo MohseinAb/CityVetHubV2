@@ -18,6 +18,7 @@
     const READ_ONLY_ACTIONS = new Set([
         'communityOverview', 'communityChannel', 'communityComments', 'communitySearch',
         'communityImageToken', 'communityAvatarTokens', 'communityOfficialNotices',
+        'communityNotifications',
         'getStaffPetDirectory', 'resolveMedicalRecorders', 'listOwnListingApplications',
         'getAdoptionPreferences', 'resolveAdoptionApplicationNames', 'listUsers',
         'openVerificationDocument', 'resolveReporterRoles', 'getIncidentReportDetails',

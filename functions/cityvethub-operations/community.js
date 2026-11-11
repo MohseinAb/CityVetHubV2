@@ -24,6 +24,11 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
  const update=(table,rowId,fields)=>api('PATCH',tpath(table,rowId),{data:fields});
  const remove=(table,rowId)=>api('DELETE',tpath(table,rowId));
  const readList=(table,filters=[],limit=100)=>api('GET',listPath(table,filters,limit)).then(r=>r.rows||[]);
+ const readRecent=async(table,limit=100,filters=[])=>{
+   const q='&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'orderDesc',attribute:'$createdAt'}));
+   try{return (await api('GET',listPath(table,filters,limit)+q)).rows||[];}
+   catch{return readList(table,filters,limit);}
+ };
  const getOrNull=async(table,rowId)=>{try{return await get(table,rowId);}catch(e){if(e.status===404)return null;throw e;}};
  const membershipId=(channelId,userId)=>hashId('m_',[channelId,userId]);
  const voteId=(type,target,userId)=>hashId('v_',[type,target,userId]);
@@ -177,6 +182,137 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
    }
    case 'communityOverview': return {channels:await listings(),verified:await isVerified(),role:admin?'admin':officer?'officer':'owner',notices:await official()};
    case 'communityOfficialNotices':return {notices:await official()};
+   case 'communityNotifications':{
+     ensureUser();
+     const [channels,memberships,posts,comments,votes,notices]=await Promise.all([
+       readRecent(TABLES.channels,100),
+       readRecent(TABLES.members,100),
+       readRecent(TABLES.posts,100),
+       readRecent(TABLES.comments,100),
+       readRecent(TABLES.votes,100),
+       official().catch(()=>[])
+     ]);
+     const channelById=new Map(channels.map(c=>[c.$id,c]));
+     const postById=new Map(posts.map(p=>[p.$id,p]));
+     const commentById=new Map(comments.map(c=>[c.$id,c]));
+     const items=[];
+     // 1. Votes (likes/upvotes) on the user's posts and comments
+     for(const v of votes){
+       if(v.userId===user.$id||Number(v.value)!==1)continue;
+       if(v.targetType==='post'){
+         const p=postById.get(v.targetId);
+         if(!p||p.isDeleted||p.authorId!==user.$id)continue;
+         const ch=channelById.get(p.channelId);
+         items.push({
+           id:'comm_vote_post_'+v.$id,
+           category:'community',
+           kind:'like_post',
+           title:'New upvote on your discussion',
+           message:`Someone upvoted "${p.title||'your discussion'}"${ch?` in #${ch.name}`:''}.`,
+           createdAt:v.$updatedAt||v.$createdAt||p.$createdAt,
+           module:'community',
+           channelId:p.channelId,
+           postId:p.$id
+         });
+       }else if(v.targetType==='comment'){
+         const c=commentById.get(v.targetId);
+         if(!c||c.isDeleted||c.authorId!==user.$id)continue;
+         const p=postById.get(c.postId);
+         items.push({
+           id:'comm_vote_comment_'+v.$id,
+           category:'community',
+           kind:'like_comment',
+           title:'New upvote on your comment',
+           message:`Someone upvoted your comment${p?` on "${p.title}"`:''}: "${String(c.body||'').slice(0,60)}"`,
+           createdAt:v.$updatedAt||v.$createdAt||c.$createdAt,
+           module:'community',
+           channelId:c.channelId,
+           postId:c.postId
+         });
+       }
+     }
+     // 2. Comments on the user's posts and replies to the user's comments
+     for(const c of comments){
+       if(c.isDeleted)continue;
+       const p=postById.get(c.postId);
+       const ch=channelById.get(c.channelId);
+       const parent=c.parentCommentId?commentById.get(c.parentCommentId):null;
+       const cleanAuthor=String(c.authorName||'A community member').replace(/\s*\[(Admin|Field Officer)\]\s*$/i,'').trim();
+       if(c.authorId!==user.$id&&parent&&!parent.isDeleted&&parent.authorId===user.$id){
+         items.push({
+           id:'comm_reply_'+c.$id,
+           category:'community',
+           kind:'comment_reply',
+           title:`${cleanAuthor} replied to your comment`,
+           message:`"${String(c.body||'').slice(0,85)}"${p?` in "${p.title}"`:''}`,
+           createdAt:c.$createdAt,
+           module:'community',
+           channelId:c.channelId,
+           postId:c.postId
+         });
+       }else if(p&&!p.isDeleted&&p.authorId===user.$id){
+         const isSelf=c.authorId===user.$id;
+         items.push({
+           id:'comm_comment_'+c.$id,
+           category:'community',
+           kind:'post_comment',
+           title:isSelf?'New comment on your discussion':`${cleanAuthor} commented on your discussion`,
+           message:`${isSelf?'You commented on':'On'} "${p.title}": "${String(c.body||'').slice(0,80)}"${ch?` (#${ch.name})`:''}`,
+           createdAt:c.$createdAt,
+           module:'community',
+           channelId:c.channelId,
+           postId:p.$id
+         });
+       }
+     }
+     // 3. Pending join requests on channels owned by the user (or admin)
+     for(const m of memberships){
+       const ch=channelById.get(m.channelId);
+       if(!ch||ch.isArchived)continue;
+       if(m.status==='pending'&&(owned(ch)||admin)&&m.userId!==user.$id){
+         items.push({
+           id:'comm_join_req_'+m.$id,
+           category:'community',
+           kind:'join_request',
+           title:'Channel membership request',
+           message:`${m.userName||'A member'} requested to join private channel #${ch.name}.`,
+           createdAt:m.requestedAt||m.$createdAt,
+           module:'community',
+           channelId:ch.$id
+         });
+       }
+       if(m.userId===user.$id&&!owned(ch)&&(m.status==='approved'||m.status==='rejected')){
+         items.push({
+           id:`comm_join_status_${m.$id}_${m.status}`,
+           category:'community',
+           kind:'join_status',
+           title:m.status==='approved'?'Channel request approved':'Channel request declined',
+           message:m.status==='approved'?`You now have access to private channel #${ch.name}.`:`Your request to join #${ch.name} was declined.`,
+           createdAt:m.reviewedAt||m.$updatedAt||m.$createdAt,
+           module:'community',
+           channelId:ch.$id
+         });
+       }
+     }
+     // 4. Official announcements & outbreak advisories
+     for(const n of notices){
+       items.push({
+         id:'comm_notice_'+n.id,
+         category:'alerts',
+         kind:n.category||'announcement',
+         title:n.category==='outbreak'?`Declared Outbreak: ${n.title}`:n.category==='advisory'?`CVO Advisory: ${n.title}`:`CVO Announcement: ${n.title}`,
+         message:`${n.barangay?n.barangay+' · ':''}${String(n.body||'').slice(0,100)}`,
+         createdAt:n.date,
+         module:officer?'alerts':'community'
+       });
+     }
+     items.sort((a,b)=>{
+       const ta=new Date(a.createdAt||0).getTime()||0;
+       const tb=new Date(b.createdAt||0).getTime()||0;
+       return tb-ta;
+     });
+     return {notifications:items.slice(0,60)};
+   }
    case 'communityCreateChannel':{
      await requireVerified();const name=requireValue(data.name,80,'Channel name'),description=optional(data.description,300);
      const privacy=choice(data.privacy||'public',['public','private']);
@@ -228,7 +364,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
    }
    case 'communityComments':{
      const p=await get(TABLES.posts,requireValue(data.postId,36));const ch=await get(TABLES.channels,p.channelId);await assertVisible(ch);
-     const [comments,votes,roles]=await Promise.all([readList(TABLES.comments,[{attribute:'postId',value:p.$id}],100),voteSummaries(ch.$id),getStaffRoles()]);
+     const [comments,votes,roles]=await Promise.all([readRecent(TABLES.comments,100,[{attribute:'postId',value:p.$id}]),voteSummaries(ch.$id),getStaffRoles()]);
      return {post:cleanPost(p,roles),comments:comments.sort((a,b)=>String(a.$createdAt).localeCompare(String(b.$createdAt))).map(c=>({...cleanComment(c,roles),...(votes.get('comment:'+c.$id)||{score:0,upvotes:0,downvotes:0,myVote:0})}))};
    }
    case 'communityCreateComment':{

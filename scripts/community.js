@@ -299,7 +299,13 @@
     }catch(x){message(handlerErr(x));}
   });
   let debounce;function search(value){if(!active||viewMode==='officer-notices')return;clearTimeout(debounce);searchQuery=String(value||'').trim();debounce=setTimeout(()=>{if(searchQuery.length>=2){section='search';refresh(true);}else if(section==='search'){section='feed';refresh(true);}},280);}
-  return {open,close,search,refresh};
+  async function focusTarget({channelId,postId}={}){
+    active=true;viewMode='community';
+    if(channelId){selected=channelId;section='channel';}else{section='feed';}
+    await refresh(true);
+    if(postId){try{await showComments(postId);}catch{}}
+  }
+  return {open,close,search,refresh,focusTarget};
  }
  window.CityVetCommunity=Object.freeze({mount});
 })();

@@ -810,7 +810,7 @@ export default async ({req,res,log,error})=>{
         const all=await api('GET',path(T.listings)+'?limit=100');
         const mine=new Set((all.rows||[]).filter(l=>l.postedById===user.$id).map(l=>l.$id));
         const apps=await api('GET',path(T.applications)+'?limit=100');
-        result={applications:(apps.rows||[]).filter(a=>mine.has(a.listingId)).map(a=>({$id:a.$id,listingId:a.listingId,petId:a.petId,applicantId:a.applicantId,applicantName:a.applicantName,message:a.message,contactNumber:a.contactNumber,status:a.status,submittedAt:a.submittedAt}))};break;
+        result={applications:(apps.rows||[]).filter(a=>mine.has(a.listingId)).map(a=>({$id:a.$id,listingId:a.listingId,petId:a.petId,petNameSnapshot:a.petNameSnapshot||'',listingTitleSnapshot:a.listingTitleSnapshot||'',applicantId:a.applicantId,applicantName:a.applicantName,message:a.message,contactNumber:a.contactNumber,status:a.status,submittedAt:a.submittedAt,$createdAt:a.$createdAt,$updatedAt:a.$updatedAt}))};break;
       }
       case 'reviewOwnAdoption':{
         verify(403,owner,'Only the current Pet Owner can decide an adoption request.');
