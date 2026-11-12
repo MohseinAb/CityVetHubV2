@@ -22,13 +22,13 @@ function mount({api,current}){
  const isAlreadyListed=petId=>existingListings.some(l=>l.petProfileId===petId&&l.status!=='adopted');
  const listedBadge=()=>'<span class="CV412_ALREADY_LISTED"><i class="fa-solid fa-check-circle"></i> Listed for adoption</span>';
  const list=async key=>{const r=await api.tablesDB.listRows({databaseId:cfg.databaseId,tableId:cfg.tables[key],queries:[Q.orderDesc('$createdAt'),Q.limit(100)]});return r.rows||[];};
- const show=(title,sub,toolbar,body)=>{box.innerHTML=`<div class="REGISTRY_TOP"><div><span class="REGISTRY_KICKER"><i class="fa-solid fa-paw"></i> PET MANAGEMENT</span><h2>${H(title)}</h2><p>${H(sub)}</p></div><div class="REGISTRY_ACTIONS">${toolbar}</div></div><div id="p46Notice" class="P4_NOTICE" role="status" hidden></div>${body}`;};
+ const show=(title,sub,toolbar,body)=>{box.innerHTML=`<div class="REGISTRY_TOP"><div><span class="REGISTRY_KICKER"><i class="fa-solid fa-paw"></i> PET MANAGEMENT</span><h2>${H(title)}</h2><p>${H(sub)}</p></div><div class="REGISTRY_ACTIONS">${toolbar}</div></div><div id="p46Notice" class="P4_NOTICE" role="status" hidden></div>${body}`;window.CityVetUI?.upgrade(box);};
  function notice(text,err=false){const node=box.querySelector('#p46Notice');if(node){node.hidden=false;node.className='P4_NOTICE '+(err?'P4_NOTICE_ERROR':'P4_NOTICE_SUCCESS');node.textContent=text;}}
  function modal(title,fields,onSave,label='Save changes',successMessage='Saved successfully.'){
   const overlay=document.createElement('div');overlay.className='CV_MODAL P46_MODAL';overlay.innerHTML=`<div class="CV_MODAL_CARD P46_DIALOG" role="dialog" aria-modal="true" aria-label="${H(title)}"><div class="CV_MODAL_HEAD"><h3>${H(title)}</h3><button type="button" data-close aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button></div><form class="P4_PET_FORM">${fields}<div class="P4_FORM_ERRORS" role="alert" hidden></div><div class="P4_FORM_FOOT"><button type="button" class="CV_SOFT CV_BUTTON" data-close>Cancel</button><button type="submit" class="PRIMARY_ACTION">${H(label)}</button></div></form></div>`;
   const close=()=>overlay.remove();overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))close();});
   overlay.querySelector('form').addEventListener('submit',async event=>{event.preventDefault();const button=event.currentTarget.querySelector('[type=submit]');button.disabled=true;button.textContent='Saving…';try{await onSave(event.currentTarget);close();await reload(true);notice(successMessage);}catch(error){const err=event.currentTarget.querySelector('.P4_FORM_ERRORS');err.hidden=false;err.textContent='Unable to publish/save: '+api.readableError(error);err.setAttribute('aria-live','assertive');err.scrollIntoView({behavior:'smooth',block:'nearest'});console.error('CityVetHub form failed:',error);}finally{button.disabled=false;button.textContent=label;}});
-  document.body.append(overlay);return overlay;
+  document.body.append(overlay);window.CityVetUI?.upgrade(overlay);return overlay;
  }
  const fld=(label,name,val='',type='text',attrs='')=>`<label>${H(label)}<input name="${name}" type="${type}" value="${H(val)}" ${attrs}></label>`;
  const txt=(label,name,val='',max=1500)=>`<label class="P4_FORM_WIDE">${H(label)}<textarea name="${name}" maxlength="${max}" rows="3">${H(val)}</textarea></label>`;
@@ -47,7 +47,7 @@ function mount({api,current}){
   const dialog=modal(pet?`Edit ${pet.petName}`:'Add a pet',fld('Pet name','petName',pet?.petName,'text','required maxlength="100"')+  
   select('Animal type','species',['Dog','Cat'],pet?.species||'Dog')+`<label>Breed <select name="breed" required><option value="">Loading available breeds…</option></select></label>`+select('Coat color','color',window.CityVetBreedCatalog?.colors||['Black','White','Brown','Gray','Other / Unknown'],pet?.color||'Other / Unknown')+  
   select('Sex','sex',['Male','Female'],pet?.sex||'Male')+fld('Age in years','ageYears',pet?.ageYears??0,'number','min="0" max="40" required')+  
-  fld('Barangay','barangay',pet?.barangay,'text','required maxlength="100"')+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
+  `<label>Barangay<select name="barangay" required>${window.CityVetBarangays?.optionsHtml(pet?.barangay||'')||`<option value="${H(pet?.barangay||'')}">${H(pet?.barangay||'Select barangay')}</option>`}</select></label>`+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
   fld('Emergency contact (private)','emergencyContact',pet?.emergencyContact,'tel','maxlength="60"')+  
   select('Vital status','vitalStatus',['Alive', 'Deceased'],pet?.vitalStatus||'Alive')+
   ancestrySelector(pet,pet?.species||'Dog')+
@@ -128,7 +128,7 @@ function mount({api,current}){
  function detailsBody(pet){
   const ownEvidence=evidence.filter(x=>x.petProfileId===pet.$id);
   const official=approved.find(x=>x.petProfileId===pet.$id);
-  const clinical=clinician.filter(x=>x.petId===official?.$id);
+  const clinical=clinician.filter(x=>x.petId===pet.$id||(official?.$id&&x.petId===official.$id));
   const rows=ownEvidence.map(x=>{const parsed=splitExpiry(x.title,x.expiryDate);return `<div class="P46_HEALTH_ROW"><div><strong>${H(parsed.text)}</strong><small>${H(date(x.recordDate))}${parsed.expiryDate?` · Expires ${H(date(parsed.expiryDate))}`:''} · ${x.sharePublic?'Public (owner-supplied)':'Private'}</small></div><a href="${H(safeImage(x.fileId))}" target="_blank" rel="noopener">View image</a>${action('Remove','removeHealth',x.$id,'fa-trash')}</div>`;}).join('');
   const p1Name=pets.find(p=>p.$id===pet.ancestryParentId)?.petName||pet.ancestryParentName||'Unknown / Not listed';
   const p2Id=parent2IdOf(pet),p2Name=pets.find(p=>p.$id===p2Id)?.petName||parent2NameOf(pet)||'Unknown / Not listed';
@@ -157,7 +157,7 @@ function mount({api,current}){
   const visible=pets.filter(p=>[p.petName,p.breed,p.species,p.barangay].some(v=>String(v||'').toLowerCase().includes(term)));
   show('My Pets','Every pet has an immediate QR profile. CVO verification is an optional separate request.',action('Add a pet','add','','fa-plus',true)+action('Refresh','reload','','fa-rotate'),
     `<div class="P4_SUMMARY_GRID">${[['My pets',pets.length],['Drafts',pets.filter(p=>p.verificationStatus==='draft').length],['Awaiting verification',pets.filter(p=>p.verificationStatus==='pending').length],['Verified',pets.filter(p=>p.verificationStatus==='verified').length]].map(([n,v])=>`<div class="P4_SUMMARY"><span>${H(n)}</span><strong>${v}</strong></div>`).join('')}</div>`+
-    `<div class="P4_PET_GRID">${visible.length?visible.map(p=>`<article class="P4_PET_CARD P46_CLICK_CARD" role="button" tabindex="0" data-p46="open" data-id="${H(p.$id)}" aria-label="Open ${H(p.petName)}'s profile"><div class="P4_PET_MEDIA">${img(p.photoFileId)}<div class="P4_FLOAT_BADGE">${status(p.verificationStatus)}</div></div><div class="P4_PET_COPY"><h3>${H(p.petName)}</h3><p>${H(p.profileTitle||p.species+' · '+p.breed)}</p><div class="P4_PET_FACTS"><span class="P4_PET_FACT">${H(p.species)}</span><span class="P4_PET_FACT">${H(p.breed)}</span><span class="P4_PET_FACT">${H(p.ageYears)} yr</span></div><p class="P4_PET_BARANGAY"><i class="fa-solid fa-location-dot"></i> ${H(p.barangay)}</p><div class="P4_PET_ACTIONS">${action('View profile','open',p.$id,'fa-eye',true)}${action('QR code','qr',p.$id,'fa-qrcode')}${isAlreadyListed(p.$id)?listedBadge():action('List for adoption','listAdoption',p.$id,'fa-heart')}${['draft','rejected'].includes(p.verificationStatus)?action('Send request','verify',p.$id,'fa-paper-plane'):''}</div></div></article>`).join(''):'<div class="P4_EMPTY_PETS"><h3>No pets yet</h3><p>Add a pet to generate its personal QR link immediately.</p></div>'}</div>`+
+    `<div class="P4_PET_GRID">${visible.length?visible.map(p=>`<article class="P4_PET_CARD P46_CLICK_CARD" role="button" tabindex="0" data-p46="open" data-id="${H(p.$id)}" data-species="${H(p.species||'')}" data-status="${H(statuses[p.verificationStatus]||p.verificationStatus||'Draft')}" data-barangay="${H(p.barangay||'Unspecified')}" aria-label="Open ${H(p.petName)}'s profile"><div class="P4_PET_MEDIA">${img(p.photoFileId)}<div class="P4_FLOAT_BADGE">${status(p.verificationStatus)}</div></div><div class="P4_PET_COPY"><h3>${H(p.petName)}</h3><p>${H(p.profileTitle||p.species+' · '+p.breed)}</p><div class="P4_PET_FACTS"><span class="P4_PET_FACT">${H(p.species)}</span><span class="P4_PET_FACT">${H(p.breed)}</span><span class="P4_PET_FACT">${H(p.ageYears)} yr</span></div><p class="P4_PET_BARANGAY"><i class="fa-solid fa-location-dot"></i> ${H(p.barangay)}</p><div class="P4_PET_ACTIONS">${action('View profile','open',p.$id,'fa-eye',true)}${action('QR code','qr',p.$id,'fa-qrcode')}${isAlreadyListed(p.$id)?listedBadge():action('List for adoption','listAdoption',p.$id,'fa-heart')}${['draft','rejected'].includes(p.verificationStatus)?action('Send request','verify',p.$id,'fa-paper-plane'):''}</div></div></article>`).join(''):'<div class="P4_EMPTY_PETS"><h3>No pets yet</h3><p>Add a pet to generate its personal QR link immediately.</p></div>'}</div>`+
     '<p class="CV_HINT">QR profiles are public only through their link. Sharing medical images, contact numbers, owner name, and exact address is optional.</p>');
  }
  function staffPage(){
@@ -216,7 +216,7 @@ function mount({api,current}){
  }
  async function reload(silent=false){
   const prevNoticeNode=box.querySelector('#p46Notice');
-  const prevNotice=prevNoticeNode&&!prevNoticeNode.hidden?{text:prevNoticeNode.textContent,err:prevNoticeNode.classList.contains('P4_NOTICE_ERROR')}:null;
+  const prevNotice=prevNoticeNode&&!prevNoticeNode.hidden&&!prevNoticeNode.classList.contains('P4_NOTICE_ERROR')?{text:prevNoticeNode.textContent,err:false}:null;
   const scroller=document.querySelector('.DASHBOARD_CONTENT')||document.documentElement;
   const scrollTop=scroller.scrollTop;
   if(!silent&&!box.children.length){

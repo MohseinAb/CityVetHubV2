@@ -29,14 +29,9 @@
                 <div class="AUTH_SMALL_LOGO"><img src="./assets/logo_main.png" alt="" aria-hidden="true"> CityVetHub</div>
                 <div class="AUTH_KICKER">WELCOME BACK</div>
                 <h2>Sign in to your account</h2>
-                <p class="AUTH_SUBTITLE">Choose your role and enter your credentials to continue.</p>
+                <p class="AUTH_SUBTITLE">Enter your credentials to continue. Your account role is detected automatically.</p>
                 <div id="authNotice" class="AUTH_NOTICE" role="alert" hidden></div>
                 <form id="authForm" novalidate>
-                    <label for="role">Sign in as</label>
-                    <div class="AUTH_INPUT_WRAP"><i class="fa-solid fa-users"></i><select id="role" name="role" required>
-                        <option value="owner">Pet Owner</option><option value="officer">Field Officer</option><option value="admin">Administrator</option>
-                    </select><i class="fa-solid fa-chevron-down AUTH_CHEVRON"></i></div>
-                    <p id="roleHelper" class="AUTH_HINT"></p>
                     <label for="email">Email address</label>
                     <div class="AUTH_INPUT_WRAP"><i class="fa-regular fa-envelope"></i><input id="email" type="email" name="email" autocomplete="username" placeholder="name@example.com" required></div>
                     <label for="password">Password</label>

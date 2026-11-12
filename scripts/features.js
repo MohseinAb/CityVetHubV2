@@ -26,16 +26,17 @@
  function modal(title,fields,callback){
    const wrap=document.createElement('div');wrap.className='CV_MODAL';wrap.innerHTML=`<div class="CV_MODAL_CARD" role="dialog" aria-modal="true"><div class="CV_MODAL_HEAD"><h3>${h(title)}</h3><button type="button" aria-label="Close" data-close><i class="fa-solid fa-xmark"></i></button></div><form class="CV_FORM">${fields.map(f=>{
      const common=`name="${h(f.key)}" ${f.required===false?'':'required'} ${f.max?`maxlength="${f.max}"`:''}`;
-     if(f.type==='select')return `<label>${h(f.label)}<select ${common}>${(f.options||[]).map(o=>`<option value="${h(o.value??o)}">${h(o.label??o)}</option>`).join('')}</select></label>`;
+     const wideCls=f.wide?' class="CV_WIDE"':'';
+     if(f.type==='select')return `<label${wideCls}>${h(f.label)}<select ${common} ${f.placeholder?`data-placeholder="${h(f.placeholder)}"`:''}>${(f.options||[]).map(o=>`<option value="${h(o.value??o)}">${h(o.label??o)}</option>`).join('')}</select></label>`;
      if(f.type==='textarea')return `<label class="CV_WIDE">${h(f.label)}<textarea ${common} rows="3" placeholder="${h(f.placeholder||'')}"></textarea></label>`;
-     return `<label>${h(f.label)}<input type="${f.type||'text'}" ${common} value="${h(f.value||'')}" ${f.min!==undefined?`min="${f.min}"`:''} ${f.maxValue!==undefined?`max="${f.maxValue}"`:''} ${f.step!==undefined?`step="${f.step}"`:''} placeholder="${h(f.placeholder||'')}"></label>`;
+     return `<label${wideCls}>${h(f.label)}<input type="${f.type||'text'}" ${common} value="${h(f.value||'')}" ${f.min!==undefined?`min="${f.min}"`:''} ${f.maxValue!==undefined?`max="${f.maxValue}"`:''} ${f.step!==undefined?`step="${f.step}"`:''} ${f.suggestions?`data-autocomplete-list="${h(JSON.stringify(f.suggestions))}"`:''} placeholder="${h(f.placeholder||'')}"></label>`;
    }).join('')}<div class="CV_FORM_FOOT"><button type="button" class="CV_SOFT CV_BUTTON" data-close>Cancel</button><button type="submit" class="PRIMARY_ACTION CV_BUTTON">Save</button></div></form></div>`;
    const close=()=>wrap.remove();wrap.addEventListener('click',e=>{if(e.target===wrap||e.target.closest('[data-close]'))close();});
    wrap.querySelector('form').addEventListener('submit',async e=>{
      e.preventDefault();const btn=wrap.querySelector('[type=submit]');btn.disabled=true;btn.textContent='Saving…';
      const data=Object.fromEntries(new FormData(e.target).entries());
      try{await callback(data);close();}catch(err){let n=wrap.querySelector('.CV_MODAL_ERROR');if(!n){n=document.createElement('p');n.className='CV_MODAL_ERROR';e.target.prepend(n);}n.textContent=err.message||'Unable to save';}finally{btn.disabled=false;btn.textContent='Save';}
-   });document.body.append(wrap);wrap.querySelector('input,select,textarea')?.focus();return wrap;
+   });document.body.append(wrap);window.CityVetUI?.upgrade(wrap);wrap.querySelector('input,select,textarea')?.focus();return wrap;
  }
  function confirmAction({title,description,confirmLabel='Confirm',danger=false,onConfirm}){
    const overlay=document.createElement('div');overlay.className='CV_MODAL CV412_CONFIRM';
@@ -89,6 +90,7 @@
        const el=container.querySelector('#'+id);if(el)savedControls[id]=el.value;
      });
      container.innerHTML=panel(s);
+     window.CityVetUI?.upgrade(container);
      Object.entries(savedControls).forEach(([id,val])=>{
        const el=container.querySelector('#'+id);
        if(el&&val){el.value=val;setTimeout(()=>el.dispatchEvent(new Event('change')),0);}
@@ -122,7 +124,7 @@
    async function refresh(silent=false){
      if(!active)return;
      const prevNotice=container.querySelector('#cvNotice');
-     const savedNotice=prevNotice&&!prevNotice.hidden?{text:prevNotice.textContent,kind:prevNotice.classList.contains('is-success')?'success':'error'}:null;
+     const savedNotice=prevNotice&&!prevNotice.hidden&&prevNotice.classList.contains('is-success')?{text:prevNotice.textContent,kind:'success'}:null;
      if(!silent){
        if(map){map.remove();map=null;mapLayers=[];}
        container.innerHTML='<div class="CV_LOADING"><i class="fa-solid fa-rotate fa-spin"></i> Loading records…</div>';
@@ -136,17 +138,38 @@
    function open(key){const same=active===key&&container.querySelector('.CV_WORKSPACE');active=key;filter='';return refresh(Boolean(same));}
    function search(s){filter=s.toLowerCase().trim();if(active)refresh(true);}
    async function medical(){
-     const [records,pets,profiles,uploads,staffDirectory]=await Promise.all([
+     const [records,pets,profiles,uploads,staffDirectory,userProfiles]=await Promise.all([
        fetchTable('medical'),fetchTable('pets'),fetchTable('petProfiles').catch(()=>[]),
        owner?fetchTable('petHealthUploads').catch(()=>[]):Promise.resolve([]),
-       (admin||officer)?api.operate('getStaffPetDirectory').catch(e=>{console.warn('Staff directory unavailable:',e.message);return {pets:[]};}):Promise.resolve({pets:[]})
+       (admin||officer)?api.operate('getStaffPetDirectory').catch(e=>{console.warn('Staff directory unavailable:',e.message);return {pets:[]};}):Promise.resolve({pets:[]}),
+       admin?fetchTable('userProfiles').catch(()=>[]):Promise.resolve([])
      ]);
      const staffById=new Map((staffDirectory.pets||[]).map(p=>[p.$id,p]));
+     const userProfileById=new Map((userProfiles||[]).map(u=>[u.$id,u]));
      const authorLookup=(admin||officer)&&records.length?await api.operate('resolveMedicalRecorders',{recordIds:records.slice(0,100).map(r=>r.$id)}).catch(e=>{console.warn('Medical recorder lookup unavailable:',e.message);return {recorders:[]};}):{recorders:[]};
      const recorderByRecord=new Map((authorLookup.recorders||[]).map(r=>[r.recordId,r.recorderName]));
      cache.medical=records;cache.pets=pets;
      const profileById=new Map(profiles.map(p=>[p.$id,p]));
      const petById=new Map(pets.map(p=>[p.$id,p]));
+     const staffPets=[];
+     const seenPetIds=new Set();
+     for(const p of pets){
+       seenPetIds.add(p.$id);
+       if(p.petProfileId)seenPetIds.add(p.petProfileId);
+       staffPets.push({...p,verificationStatus:'verified'});
+     }
+     for(const sp of staffDirectory.pets||[]){
+       if(seenPetIds.has(sp.$id)||(sp.petProfileId&&seenPetIds.has(sp.petProfileId)))continue;
+       seenPetIds.add(sp.$id);
+       if(sp.petProfileId)seenPetIds.add(sp.petProfileId);
+       staffPets.push({...sp,verificationStatus:sp.verificationStatus||'draft'});
+     }
+     for(const prof of profiles){
+       if(seenPetIds.has(prof.$id))continue;
+       seenPetIds.add(prof.$id);
+       const ownerName=userProfileById.get(prof.ownerId)?.fullName||staffById.get(prof.$id)?.ownerName||'Pet Owner';
+       staffPets.push({...prof,ownerName,verificationStatus:prof.verificationStatus||'draft'});
+     }
      // A successful adoption changes CURRENT ownership, not the pet or medical IDs.
      // Never infer access to a pet from a historical medical-record permission.
      const ownedProfiles=profiles.filter(p=>p.ownerId===current.user.$id);
@@ -159,26 +182,26 @@
      const selectedPets=new Set(currentRecords.map(r=>r.petId));
      const vaccinePets=new Set(currentRecords.filter(r=>r.recordType==='Vaccination').map(r=>r.petId));
      const byBarangay=new Map();
-     for(const pet of owner?ownedVerified:pets){const place=pet.barangay||'Unspecified';const v=byBarangay.get(place)||{total:0,vaccinated:0};v.total++;if(vaccinePets.has(pet.$id)||vaccinePets.has(pet.petProfileId))v.vaccinated++;byBarangay.set(place,v);}
+     for(const pet of owner?family:staffPets){const place=pet.barangay||'Unspecified';const v=byBarangay.get(place)||{total:0,vaccinated:0};v.total++;if(vaccinePets.has(pet.$id)||vaccinePets.has(pet.petProfileId))v.vaccinated++;byBarangay.set(place,v);}
      const coverageRows=[...byBarangay].sort((a,b)=>a[0].localeCompare(b[0])).map(([place,v])=>tr([h(place),h(v.total),h(v.vaccinated),h(v.total?Math.round(v.vaccinated/v.total*100)+'%':'—')]));
-     const petPhoto=pet=>profileById.get(pet?.petProfileId)?.photoFileId||pet?.photoFileId||'';
+     const petPhoto=pet=>profileById.get(pet?.petProfileId)?.photoFileId||profileById.get(pet?.$id)?.photoFileId||pet?.photoFileId||'';
      const staffPhoto=(pet,cls='CV49_DIRECTORY_PHOTO')=>{
-       const url=staffById.get(pet?.$id)?.imageUrl;
+       const url=staffById.get(pet?.$id)?.imageUrl||pet?.imageUrl;
        return url?`<span class="${cls}"><img src="${h(url)}" alt="${h(pet.petName)} photo" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden class="CV49_IMAGE_FALLBACK"><i class="fa-solid fa-paw"></i></span></span>`:image(pet?.photoFileId||petPhoto(pet),cls);
      };
-     const petRow=record=>petById.get(record.petId)||profileById.get(record.petId)||{petName:'Pet record',species:'',breed:''};
-     const roster=owner?family:pets;
+     const petRow=record=>petById.get(record.petId)||profileById.get(record.petId)||staffById.get(record.petId)||{petName:'Pet record',species:'',breed:''};
+     const roster=owner?family:staffPets;
      view(header('CLINICAL WORKSPACE','Medical & Vaccination',owner?'Your pets and their authorized CVO records. Personal photo documents are shown separately from official medical records.':'Pet-centered CVO medical history, vaccinations and treatment activity.',(admin||officer)?action('addMedical','Record treatment','fa-notes-medical'):'')+
        
-       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>${owner?'My pets':'Pet directory'}</h3><span>${roster.length} accessible pets</span></div><div class="CV49_PET_DIRECTORY">${roster.length?roster.map(p=>`<article class="CV49_DIRECTORY_CARD">${owner?image(p.photoFileId||petPhoto(p),'CV49_DIRECTORY_PHOTO'):staffPhoto(p)}<div><strong>${h(p.petName)}</strong><small>${h(p.species)} · ${h(p.breed)}</small><span>${h(p.barangay||'Barangay unspecified')}</span></div>${p.verificationStatus==='verified'||petById.has(p.$id)?pill('Verified'):pill('Unverified')}</article>`).join(''):blank('Your pet records will appear here.')}</div></div>`+
+       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>${owner?'My pets':'Pet directory'}</h3><span>${roster.length} accessible pets</span></div><div class="CV49_PET_DIRECTORY">${roster.length?roster.map(p=>`<article class="CV49_DIRECTORY_CARD" data-species="${h(p.species||'')}" data-status="${p.verificationStatus==='verified'||petById.has(p.$id)?'Verified':'Unverified'}" data-barangay="${h(p.barangay||'Unspecified')}" data-owner="${h(p.ownerName||'')}">${owner?image(p.photoFileId||petPhoto(p),'CV49_DIRECTORY_PHOTO'):staffPhoto(p)}<div><strong>${h(p.petName)}</strong><small>${h(p.species)} · ${h(p.breed)}</small>${!owner&&p.ownerName?`<small><i class="fa-regular fa-user"></i> ${h(p.ownerName)}</small>`:''}<span>${h(p.barangay||'Barangay unspecified')}</span></div>${p.verificationStatus==='verified'||petById.has(p.$id)?pill('Verified'):pill('Unverified')}</article>`).join(''):blank('Your pet records will appear here.')}</div></div>`+
        `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Official veterinary records</h3><span>CVO / authorized field staff entries</span></div>${table(['Pet','Record','Medicine / vaccine','Date','Expiry','Recorded by'],visible.map(r=>{const exp=splitExpiry(r.description,r.expiryDate).expiryDate;return tr([`<span class="CV49_CELL_FLEX">${owner?image(petPhoto(petRow(r)),'CV49_THUMB'):staffPhoto(petRow(r),'CV49_THUMB')}<span class="CV49_PET_CELL"><strong>${h(petRow(r).petName)}</strong><small>${h(petRow(r).breed||'')}</small></span></span>`,pill(r.recordType),h(r.medicineType),h(date(r.dateAdministered)),h(exp?date(exp):'—'),h(recorderByRecord.get(r.$id)||r.recorderNameSnapshot||(owner?'CVO staff':'Unknown staff member'))]);}))}</div>`+
        (owner?`<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>My uploaded health documents</h3><span>Personal evidence · not clinical certification</span></div><div class="CV49_DOC_GRID">${uploads.filter(x=>x.ownerId===current.user.$id&&currentPetIds.has(x.petProfileId)).map(x=>{const parsed=splitExpiry(x.title,x.expiryDate);return `<article class="CV49_DOC_CARD">${image(x.fileId,'CV49_DIRECTORY_PHOTO','fa-file-medical')}<div><strong>${h(parsed.text)}</strong><small>${h(date(x.recordDate))}${parsed.expiryDate?` · Expires ${h(date(parsed.expiryDate))}`:''}</small><span>${x.sharePublic?'Shared on QR with consent':'Private to your account'}</span></div></article>`;}).join('')||'<p class="CV_HINT">Add dated health documents from My Pets → View profile.</p>'}</div></div>`:'')+
        `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Vaccination records by barangay</h3><span>Accessible verified-pet sample</span></div>${table(['Barangay','Verified pets','With vaccination entry','Coverage'],coverageRows)}</div>`+
        '<p class="CV_HINT">Vaccination coverage is based on the presence of an accessible record, not whether a vaccine is clinically up to date. Views are limited to the first 100 accessible rows per table.</p>');
      bind(ctrl=>{if(ctrl==='addMedical')modal('Record official treatment',[
-       {key:'petId',label:'Verified pet',type:'select',options:pets.map(p=>({value:p.$id,label:p.petName+' — '+p.ownerName}))},
+       {key:'petId',label:'Pet (type to search pet, owner, breed, or barangay)',type:'select',wide:true,placeholder:'Search by pet name, owner, breed, or barangay…',options:staffPets.map(p=>({value:p.$id,label:`${p.petName} — ${p.ownerName||'Pet Owner'} · ${p.species} (${p.breed}) · ${p.barangay||'Unspecified'} [${p.verificationStatus==='verified'||petById.has(p.$id)?'Verified':'Unverified'}]`}))},
        {key:'recordType',label:'Record type',type:'select',options:['Vaccination','Treatment']},
-       {key:'medicineType',label:'Vaccine or treatment name',max:100},
+       {key:'medicineType',label:'Vaccine or treatment name',max:100,placeholder:'Type or select vaccine / treatment…',suggestions:[...new Set(['Anti-Rabies Vaccine','5-in-1 Canine Vaccine (DHPPiL)','6-in-1 Canine Vaccine','8-in-1 Canine Vaccine','4-in-1 Feline Vaccine (FVRCP)','Bordetella (Kennel Cough) Vaccine','Deworming (Praziquantel / Pyrantel)','Tick & Flea Preventative (NexGard / Bravecto)','Heartworm Preventative (Ivermectin)','Antibiotic Therapy (Amoxicillin / Doxycycline)','Anti-inflammatory / Pain Relief','Wound Dressing & Antiseptic Care','Mange / Skin Treatment','Vitamin & Nutritional Supplement','Spay / Neuter Post-Op Care',...records.map(r=>r.medicineType).filter(Boolean)])]},
        {key:'dateAdministered',label:'Date administered',type:'date',value:new Date().toISOString().slice(0,10)},
        {key:'expiryDate',label:'Expiry of vaccination / treatment (optional)',type:'date',required:false},
        {key:'description',label:'Clinical notes (optional)',type:'textarea',required:false,max:1000}
@@ -212,7 +235,7 @@
      bind((ctrl,b)=>{
        if(ctrl==='reportDisease')modal('Report animal incident',[
          {key:'diseaseType',label:'Suspected disease',type:'select',options:['Rabies','Canine Parvovirus','Ringworm']},
-         {key:'barangay',label:'Barangay',max:100},
+         {key:'barangay',label:'Barangay',max:100,placeholder:'Type to search Iligan barangay…',suggestions:window.CityVetBarangays?.list||[]},
          {key:'latitude',label:'Latitude',type:'number',step:'any',placeholder:'8.228'},
          {key:'longitude',label:'Longitude',type:'number',step:'any',placeholder:'124.245'},
          {key:'description',label:'Description',type:'textarea',required:false,max:1000}
@@ -232,16 +255,13 @@
        `<div class="CV49_ALERT_FILTERS"><label>Alert priority<select id="alertPriority"><option value="">All priorities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label><label>Type<select id="alertType"><option value="">All alerts</option><option value="outbreak">Declared outbreak</option><option value="advisory">Health advisory</option></select></label><label>Status<select id="alertStatus"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label></div>`+
        `<div class="CV49_ALERT_LIST" id="alertCards">${visible.length?visible.map(r=>`<article class="CV49_ALERT_CARD CV411_ALERT_CARD" data-severity="${h(r.severity)}" data-kind="${r.isOutbreak?'outbreak':'advisory'}" data-active="${r.isActive?'active':'inactive'}"><div class="CV49_ALERT_ICON"><i class="fa-solid ${r.isOutbreak?'fa-triangle-exclamation':'fa-bullhorn'}"></i></div><div class="CV49_ALERT_BODY"><div class="CV49_ALERT_BADGES">${pill(r.isOutbreak?'Declared outbreak':'Advisory')} ${pill(r.severity)} ${pill(r.isActive?'active':'inactive')} ${!owner?pill(r.notifyOwners?'Pet Owners notified':'Field Officers only'):''}</div><h3>${h(r.title)}</h3><p>${h(r.message)}</p><small><i class="fa-solid fa-location-dot"></i> ${h(r.barangay)} · ${h(r.diseaseType)} · ${h(date(r.issuedAt))}</small></div>${admin?`<div class="CV49_ALERT_ACTIONS">${!r.notifyOwners?soft('notifyOwners','Notify Pet Owners',`data-id="${h(r.$id)}"`,'fa-bell'):''}${r.isActive?soft('deactivateAlert','Deactivate',`data-id="${h(r.$id)}"`,'fa-ban'):''}${r.isOutbreak?soft('deleteOutbreak','Delete outbreak',`data-id="${h(r.$id)}"`,'fa-trash-can'):''}</div>`:''}</article>`).join(''):blank(owner?'No advisories have been sent to Pet Owners.':'No staff alerts or outbreaks have been published.')}</div>`+
        `<p class="CV_HINT">${owner?'Your app displays only owner-directed alerts.':'Field Officers receive every new CVO declaration in their accessible alerts feed. In-app updates work while logged in; mobile-device push notification delivery requires the Android app to configure Appwrite Push.'}</p>`);
-     const filters=['alertPriority','alertType','alertStatus'].map(id=>container.querySelector('#'+id));
-     const apply=()=>container.querySelectorAll('#alertCards .CV49_ALERT_CARD').forEach(card=>{card.hidden=!!(filters[0].value&&card.dataset.severity!==filters[0].value||filters[1].value&&card.dataset.kind!==filters[1].value||filters[2].value&&card.dataset.active!==filters[2].value);});
-     filters.forEach(f=>f.addEventListener('change',apply));
      bind((c,b)=>{
        if(c==='publishAlert'){
          if(!activeCategories.length){message('Create an incident category under Incident Surveillance before publishing an alert.');return;}
          modal('Publish CVO health advisory',[
            {key:'title',label:'Headline',max:120},{key:'message',label:'Official message',type:'textarea',max:1500},
            {key:'diseaseType',label:'Incident category',type:'select',options:activeCategories},
-           {key:'barangay',label:'Affected barangay',max:100},{key:'severity',label:'Alert priority',type:'select',options:['low','medium','high']},
+           {key:'barangay',label:'Affected barangay',max:100,placeholder:'Type to search Iligan barangay…',suggestions:window.CityVetBarangays?.list||[]},{key:'severity',label:'Alert priority',type:'select',options:['low','medium','high']},
            {key:'notifyOwners',label:'Notify Pet Owners too?',type:'select',options:[{value:'',label:'No — Field Officers only'},{value:'yes',label:'Yes — Pet Owners too'}]}
          ],d=>execute('publishAlert',{...d,notifyOwners:d.notifyOwners==='yes'}));
        }
@@ -296,7 +316,7 @@
      const available=currentListings.filter(l=>l.isActive&&l.status==='available');
      const visible=filtered(admin?currentListings:owner?[...available,...currentListings.filter(l=>l.postedById===current.user.$id&&!available.some(a=>a.$id===l.$id))]:available,
        ['title','description','requirements','species','breed','barangay']);
-     const renderCard=x=>`<article class="CV_RECORD P47_ADOPT_CARD" tabindex="0" role="button" data-listing="${h(x.$id)}" aria-label="View ${h(x.title)}"><div class="CV_RECORD_TOP">${pill(x.status)}${!x.isActive?pill('inactive'):''}${x.postedById===current.user.$id?pill('my listing'):''}</div><div class="P47_ADOPT_PICTURE">${image(x.photoFileId||(x.postedById===current.user.$id?myPetById.get(x.petProfileId)?.photoFileId:''),'CV49_ADOPT_PHOTO')}</div><h3>${h(x.title)}</h3><p>${h(x.description)}</p><div class="CV49_LISTING_OWNER">${image(x.ownerAvatarFileId,'CV49_OWNER_AVATAR','fa-user')}<span><small>Posted by</small><strong>${h(x.ownerDisplayName||'Pet Owner')}</strong></span></div><div class="P47_ADOPT_FACTS"><span>${h(x.species||'Pet')}</span><span>${h(x.breed||'Breed not provided')}</span><span>${h(x.barangay||'Barangay unknown')}</span><span>${h(x.verificationStatus==='verified'?'CVO verified':'Not CVO verified')}</span></div><div class="CV_RECORD_BOTTOM"><span>${x.postedById===current.user.$id?'Your listing':'View pet details'}</span>${soft('viewListing','View pet',`data-id="${h(x.$id)}"`,'fa-eye')}${owner&&x.postedById===current.user.$id?soft('listingPhotos','Photos',`data-id="${h(x.$id)}"`,'fa-camera'):''}${owner&&x.postedById===current.user.$id?soft('toggleListing',x.isActive?'Withdraw':'Reopen',`data-id="${h(x.$id)}"`,'fa-toggle-on'):admin?soft('toggleListing',x.isActive?'Deactivate':'Activate',`data-id="${h(x.$id)}"`,'fa-toggle-on'):''}</div></article>`;
+     const renderCard=x=>`<article class="CV_RECORD P47_ADOPT_CARD" tabindex="0" role="button" data-listing="${h(x.$id)}" data-species="${h(x.species||'')}" data-housing="${h(x.housingRequirement||'any')}" data-barangay="${h(x.barangay||'')}" aria-label="View ${h(x.title)}"><div class="CV_RECORD_TOP">${pill(x.status)}${!x.isActive?pill('inactive'):''}${x.postedById===current.user.$id?pill('my listing'):''}</div><div class="P47_ADOPT_PICTURE">${image(x.photoFileId||(x.postedById===current.user.$id?myPetById.get(x.petProfileId)?.photoFileId:''),'CV49_ADOPT_PHOTO')}</div><h3>${h(x.title)}</h3><p>${h(x.description)}</p><div class="CV49_LISTING_OWNER">${image(x.ownerAvatarFileId,'CV49_OWNER_AVATAR','fa-user')}<span><small>Posted by</small><strong>${h(x.ownerDisplayName||'Pet Owner')}</strong></span></div><div class="P47_ADOPT_FACTS"><span>${h(x.species||'Pet')}</span><span>${h(x.breed||'Breed not provided')}</span><span>${h(x.barangay||'Barangay unknown')}</span><span>${h(x.verificationStatus==='verified'?'CVO verified':'Not CVO verified')}</span></div><div class="CV_RECORD_BOTTOM"><span>${x.postedById===current.user.$id?'Your listing':'View pet details'}</span>${soft('viewListing','View pet',`data-id="${h(x.$id)}"`,'fa-eye')}${owner&&x.postedById===current.user.$id?soft('listingPhotos','Photos',`data-id="${h(x.$id)}"`,'fa-camera'):''}${owner&&x.postedById===current.user.$id?soft('toggleListing',x.isActive?'Withdraw':'Reopen',`data-id="${h(x.$id)}"`,'fa-toggle-on'):admin?soft('toggleListing',x.isActive?'Deactivate':'Activate',`data-id="${h(x.$id)}"`,'fa-toggle-on'):''}</div></article>`;
      const incomingTable=owner?`<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Applications for my pets</h3><span>Approve or decline requests yourself. After approval, confirm the final handover.</span></div>${table(['Applicant','Pet','Contact','Reason','Status','Action'],received.map(a=>tr([h(a.applicantName),petLabel(a),h(a.contactNumber||'Not supplied'),h(a.message),pill(a.status==='owner_approved'?'Approved by owner':a.status),a.status==='pending'?`<div class="CV412_ROW_ACTIONS">${soft('ownerApprove','Approve',`data-id="${h(a.$id)}"`,'fa-check')}${soft('ownerDecline','Decline',`data-id="${h(a.$id)}"`,'fa-xmark')}</div>`:['owner_approved','approved'].includes(a.status)?soft('confirmTransfer','Confirm transfer',`data-id="${h(a.$id)}"`,'fa-handshake'):'—'])))}</div>`:'';
      const applicationTable=`<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>${admin?'CVO adoption applications':'My adoption applications'}</h3><span>Records remain linked to the original pet identity</span></div>${table(admin?['Applicant','Contact','Reason','Pet / listing','Submitted','Status','Action']:['Pet / listing','Applicant','Reason','Submitted','Status'],applications.map(a=>admin?tr([h(a.applicantName),h(a.contactNumber||'Not recorded'),h(a.message),petLabel(a),h(date(a.submittedAt)),pill(a.status),a.status==='pending'?'Awaiting Pet Owner decision':['owner_approved','approved'].includes(a.status)?'Awaiting owner handover':'—']):tr([petLabel(a),h(a.applicantName||'Applicant not recorded'),h(a.message),h(date(a.submittedAt)),pill(a.status)])))}</div>`;
      const matchingPanel=owner?`<section class="CV422_MATCH_PANEL"><div class="CV422_MATCH_HEADER"><div><span class="CV422_MATCH_EYEBROW"><i class="fa-solid fa-heart-pulse"></i> PET MATCHING</span><h3>Find your future companion</h3><p>Choose your preferred species, breed, color, gender, and age. We'll notify you when a new adoption listing matches.</p></div>${soft('matchingPreferences',matchingPrefs?'Edit preferences':'Set preferences','','fa-sliders')}</div><div class="CV422_MATCH_CHIPS"><span>${h(matchingPrefs?.species||'Any pet')}</span><span>${h(matchingPrefs?.breed||'Any breed')}</span><span>${h(matchingPrefs?.color||'Any color')}</span><span>${h(matchingPrefs?.sex||'Any gender')}</span><span>${h(matchingPrefs?`${matchingPrefs.minAgeYears??0}–${matchingPrefs.maxAgeYears??40} years`:'Any age')}</span><span class="${matchingPrefs?.isEnabled?'CV422_MATCH_ON':''}">${matchingPrefs?.isEnabled?'Matching active':'Matching not configured'}</span></div><div class="CV422_MATCH_UPDATES"><strong><i class="fa-regular fa-bell"></i> Adoption match alerts</strong>${matchingAlerts.length?matchingAlerts.slice(0,12).map(n=>`<div class="CV422_MATCH_NOTE ${n.isRead?'CV422_MATCH_READ':''}"><span><i class="fa-solid fa-paw"></i></span><div><b>${h(n.petName||n.title)}</b><small>${h(n.title)} · ${h(date(n.createdAt))}</small></div>${!n.isRead?soft('markMatchRead','Mark read',`data-id="${h(n.$id)}"`,'fa-check'):pill('Read')}</div>`).join(''):'<p>No adoption matches yet. Matches will appear here when eligible new listings are published.</p>'}</div><small>Android background push requires the mobile app to subscribe through Appwrite Push in a development build. New matches are saved here regardless of push availability.</small></section>`:'';
@@ -312,7 +332,11 @@
        const barangay=container.querySelector('#adoptionBarangay').value.trim().toLowerCase();
        const compatible=req=>!req||req==='any'||!housing||req===housing||(housing==='yard'&&['house','apartment'].includes(req))||(housing==='house'&&req==='apartment');
        const scored=visible.filter(l=>compatible(l.housingRequirement)).map(l=>({l,score:(species&&l.species===species?4:0)+(housing&&l.housingRequirement===housing?2:0)+(barangay&&String(l.barangay||'').toLowerCase().includes(barangay)?2:0)})).sort((a,b)=>b.score-a.score);
-       container.querySelector('#adoptionCards').innerHTML=scored.length?scored.map(x=>renderCard(x.l)).join(''):blank('No compatible pet listings.');
+       const cardsEl=container.querySelector('#adoptionCards');
+       cardsEl.innerHTML=scored.length?scored.map(x=>renderCard(x.l)).join(''):blank('No compatible pet listings.');
+       delete cardsEl.dataset.cvPaginated;
+       cardsEl.parentElement?.querySelectorAll('.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER').forEach(el=>el.remove());
+       window.CityVetUI?.enhancePagination(cardsEl.parentElement||container);
      });
      function adoptForm(listing){
        const formOverlay=modal(`Adoption application · ${listing.title}`,[
@@ -361,13 +385,13 @@
        }
 
        if(ctrl==='createListing')modal('Publish CVO adoption listing',[
-         {key:'petId',label:'Verified pet',type:'select',options:verifiedPets.map(p=>({value:p.$id,label:p.petName+' — '+p.species}))},
+         {key:'petId',label:'Verified pet (type to search)',type:'select',wide:true,options:verifiedPets.map(p=>({value:p.$id,label:`${p.petName} — ${p.species} (${p.breed||'Mixed'}) · ${p.barangay||'Unspecified'}`}))},
          {key:'title',label:'Listing title',max:150},{key:'description',label:'Pet story',type:'textarea',max:1500},
          {key:'requirements',label:'Adoption requirements',type:'textarea',required:false,max:1000},
          {key:'housingRequirement',label:'Housing',type:'select',options:['any','apartment','house','yard']}
        ],d=>execute('createListing',d));
        if(ctrl==='listOwnPet')modal('List my pet for adoption',[
-         {key:'petProfileId',label:'My pet',type:'select',options:unlistedPets.map(p=>({value:p.$id,label:p.petName+' — '+p.breed}))},
+         {key:'petProfileId',label:'My pet (type to search)',type:'select',wide:true,options:unlistedPets.map(p=>({value:p.$id,label:`${p.petName} — ${p.species||'Pet'} (${p.breed||'Mixed'})`}))},
          {key:'title',label:'Listing title',max:150},{key:'description',label:'Pet story',type:'textarea',max:1500},
          {key:'requirements',label:'Adoption requirements',type:'textarea',required:false,max:1000},
          {key:'housingRequirement',label:'Housing',type:'select',options:['any','apartment','house','yard']},
@@ -432,7 +456,7 @@
      const label=pet=>pet.petName||'Unnamed pet';
      view(header('PET IDENTITIES','Ownership & Traceability','Live owners, persistent QR passport IDs, and automatic handover history. Adoption transfers require owner approval and final confirmation.')+
        stats([['Pet profiles accessible',allPets.length],['CVO verified',owner?ownedVerified.length:verified.length],['Tracked ownership changes',visibleHistory.length],['Recent transfers',visibleHistory.filter(r=>new Date(r.transferDate)>new Date(Date.now()-30*86400000)).length]])+
-       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>My pet passports & registered pets</h3><span>${owner?'Your pet identities':'Verified CVO registry'}</span></div><div class="CV49_PET_DIRECTORY">${allPets.map(p=>`<article class="CV49_DIRECTORY_CARD">${image(p.photoFileId||profileIndex.get(p.petProfileId)?.photoFileId,'CV49_DIRECTORY_PHOTO')}<div class="CV410_DIRECTORY_DETAILS"><strong>${h(label(p))}</strong><small>${h(p.breed||p.species)} · ${h(p.barangay)}</small><span>${h(p.officialRegistryId||'Personal QR · Unverified')}</span></div><div class="CV410_DIRECTORY_ACTIONS">${soft('qrPassport','View QR passport',`data-id="${h(p.petProfileId||p.$id)}"`,'fa-qrcode')}</div></article>`).join('')||blank('No pet passports accessible yet.')}</div></div>`+
+       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>My pet passports & registered pets</h3><span>${owner?'Your pet identities':'Verified CVO registry'}</span></div><div class="CV49_PET_DIRECTORY">${allPets.map(p=>`<article class="CV49_DIRECTORY_CARD" data-species="${h(p.species||'')}" data-status="${p.officialRegistryId?'Verified':'Unverified'}" data-barangay="${h(p.barangay||'Unspecified')}">${image(p.photoFileId||profileIndex.get(p.petProfileId)?.photoFileId,'CV49_DIRECTORY_PHOTO')}<div class="CV410_DIRECTORY_DETAILS"><strong>${h(label(p))}</strong><small>${h(p.breed||p.species)} · ${h(p.barangay)}</small><span>${h(p.officialRegistryId||'Personal QR · Unverified')}</span></div><div class="CV410_DIRECTORY_ACTIONS">${soft('qrPassport','View QR passport',`data-id="${h(p.petProfileId||p.$id)}"`,'fa-qrcode')}</div></article>`).join('')||blank('No pet passports accessible yet.')}</div></div>`+
        `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Automatically recorded ownership history</h3><span>No manual history entry needed for adoptions</span></div><div class="CV49_HISTORY_FEED">${visibleHistory.length?visibleHistory.map(r=>`<div class="CV49_HISTORY_EVENT"><span class="CV49_HISTORY_DOT"><i class="fa-solid fa-right-left"></i></span><div><strong>${h(r.previousOwnerName||r.previousOwnerId)} <i class="fa-solid fa-arrow-right"></i> ${h(r.newOwnerName||r.newOwnerId)}</strong><small>Pet: ${h(r.petName||petNameById.get(r.petId)||'Registered pet')} · ${h(r.transferType)} · ${h(dateTime(r.transferDate))}</small></div>${pill(r.transferType)}</div>`).join(''):blank('No recorded ownership transfers yet.')}</div></div>`+
        '<div class="CV49_INFO_STRIP"><i class="fa-solid fa-shield-halved"></i><span>Medical and vaccination records remain linked to the same pet after ownership changes. The new owner receives access to private records while past owner access is revoked. Public sharing choices are reset for privacy.</span></div>');
      bind((ctrl,b)=>{

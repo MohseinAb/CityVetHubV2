@@ -15,7 +15,13 @@
         current = await api.context();
     } catch (error) {
         if (error.code === 401) return window.location.replace('./login.html');
-        return fail(api.readableError(error));
+        fail(api.readableError(error));
+        const retryWhenOnline = () => {
+            api.context().then(() => window.location.reload()).catch(() => {});
+        };
+        window.addEventListener('online', retryWhenOnline);
+        setInterval(() => { if (navigator.onLine !== false) retryWhenOnline(); }, 5000);
+        return;
     }
     if (current.user.prefs?.requireEmailVerification && !current.user.emailVerification) {
         try { await api.logout(); } catch {}
@@ -260,10 +266,56 @@
       }catch{/* Feed is optional if migrations have not run; never expose another user's records. */}
     }
     await checkAlertFeed();
+    const BRGY_TAG_RE=/^\[Barangay:\s*([^\]]+)\]\s*\n?/i;
+    function parseAnnouncementBrgy(item){
+        const raw=String(item?.body||item?.message||'');
+        const m=raw.match(BRGY_TAG_RE);
+        const barangay=String(item?.barangay||(m?m[1]:'')||'').trim();
+        const body=m?raw.replace(BRGY_TAG_RE,''):raw;
+        return {barangay,body};
+    }
+    const myBarangays=new Set();
+    const normBrgy=s=>String(s||'').trim().toLowerCase().replace(/^brgy\.?\s*/i,'').replace(/\s*\(pob\.\)\s*/i,'').trim();
+    function matchUserBarangay(target){
+        if(role==='admin'||!target)return true;
+        const t=normBrgy(target);
+        if(!t||t==='all'||t==='citywide')return true;
+        if(role==='officer'&&myBarangays.size===0)return true;
+        for(const b of myBarangays){
+            const u=normBrgy(b);
+            if(u&&(u===t||u.includes(t)||t.includes(u)))return true;
+        }
+        return false;
+    }
+    window.CityVetMatchBarangay=matchUserBarangay;
+    async function syncUserBarangays(){
+        if(role==='admin')return;
+        try{
+            const [prof,invPets,verPets]=await Promise.all([
+                api.tablesDB.getRow({databaseId:api.config.databaseId,tableId:api.config.tables.userProfiles,rowId:user.$id}).catch(()=>null),
+                api.tablesDB.listRows({databaseId:api.config.databaseId,tableId:api.config.tables.petProfiles,queries:[window.Appwrite.Query.limit(80)]}).then(r=>r.rows||[]).catch(()=>[]),
+                api.tablesDB.listRows({databaseId:api.config.databaseId,tableId:api.config.tables.pets,queries:[window.Appwrite.Query.limit(80)]}).then(r=>r.rows||[]).catch(()=>[])
+            ]);
+            if(prof?.barangay)myBarangays.add(prof.barangay);
+            if(prof?.assignedArea)myBarangays.add(prof.assignedArea);
+            if(prof?.address)myBarangays.add(prof.address);
+            for(const p of invPets)if(p.ownerId===user.$id&&p.barangay)myBarangays.add(p.barangay);
+            for(const p of verPets)if(p.ownerId===user.$id&&p.barangay)myBarangays.add(p.barangay);
+        }catch{}
+    }
+    await syncUserBarangays();
     const seenOfficialAnnouncements=new Set();let announcementsLoaded=false;
     async function checkCommunityAnnouncements(){
        try{const r=await api.operate('communityOfficialNotices');const items=(r.notices||[]).filter(x=>x.category==='announcement'&&x.isActive);
-         for(const n of items){if(announcementsLoaded&&!seenOfficialAnnouncements.has(n.id))showLiveAlert({title:n.title,message:n.body,barangay:'CityVetHub',diseaseType:'Announcement',isActive:true});seenOfficialAnnouncements.add(n.id);}announcementsLoaded=true;
+         for(const n of items){
+           const parsed=parseAnnouncementBrgy(n);
+           if(!matchUserBarangay(parsed.barangay))continue;
+           if(announcementsLoaded&&!seenOfficialAnnouncements.has(n.id)){
+             showLiveAlert({title:n.title,message:parsed.body,barangay:parsed.barangay?'Brgy. '+parsed.barangay:'CityVetHub',diseaseType:'Announcement',isActive:true});
+           }
+           seenOfficialAnnouncements.add(n.id);
+         }
+         announcementsLoaded=true;
        }catch{/* Community migration not active yet; other pages remain available. */}
     }
     await checkCommunityAnnouncements();
@@ -404,13 +456,25 @@
         };
         const recentActionBoost=(actionNames,windowMs=20000)=>actionNames.includes(lastLocalNotifAction.action)&&(Date.now()-lastLocalNotifAction.at)<windowMs;
         try{
-            // 1. Community notifications (likes/upvotes, comments, replies, join requests, official notices)
+            // 1. Community notifications (likes/upvotes, comments, replies, join requests, official notices, deleted items)
             let commLoaded=false;
             try{
                 const commRes=await api.operate('communityNotifications');
                 if(Array.isArray(commRes?.notifications)){
                     commLoaded=true;
-                    for(const n of commRes.notifications)pushItem(n);
+                    for(const n of commRes.notifications){
+                        if(n.kind==='announcement'){
+                            const parsed=parseAnnouncementBrgy({barangay:n.barangay,body:n.message});
+                            if(!matchUserBarangay(parsed.barangay))continue;
+                            pushItem({
+                                ...n,
+                                title:parsed.barangay&&!String(n.title||'').includes(parsed.barangay)?`CVO Announcement (${parsed.barangay}): ${String(n.title||'').replace(/^CVO Announcement:\s*/i,'')}`:n.title,
+                                message:parsed.body||n.message
+                            });
+                        }else{
+                            pushItem(n);
+                        }
+                    }
                 }
             }catch{}
             // Client fallback if the Function hasn't been redeployed with communityNotifications yet
@@ -418,12 +482,14 @@
                 try{
                     const ov=await api.operate('communityOverview');
                     for(const n of (ov?.notices||[])){
+                        const parsed=parseAnnouncementBrgy(n);
+                        if(!matchUserBarangay(parsed.barangay))continue;
                         pushItem({
                             id:'comm_notice_'+n.id,
                             category:'alerts',
                             kind:n.category||'announcement',
-                            title:n.category==='outbreak'?`Declared Outbreak: ${n.title}`:n.category==='advisory'?`CVO Advisory: ${n.title}`:`CVO Announcement: ${n.title}`,
-                            message:`${n.barangay?n.barangay+' · ':''}${String(n.body||'').slice(0,100)}`,
+                            title:n.category==='outbreak'?`Declared Outbreak: ${n.title}`:n.category==='advisory'?`CVO Advisory: ${n.title}`:(parsed.barangay?`CVO Announcement (${parsed.barangay}): ${n.title}`:`CVO Announcement: ${n.title}`),
+                            message:`${parsed.barangay?'Brgy. '+parsed.barangay+' · ':''}${String(parsed.body||'').slice(0,100)}`,
                             createdAt:n.date,
                             module:role==='officer'?'alerts':'community'
                         });
@@ -530,7 +596,7 @@
             }
 
             // 2. Gather core tables in parallel based on user role
-            const [pets,petProfiles,petRequests,medicalRecords,adoptionApps,adoptionListings,matchNotifs,ownershipRows,alertRows,diseaseReports,idRequests]=await Promise.all([
+            const [pets,petProfiles,petRequests,medicalRecords,adoptionApps,adoptionListings,matchNotifs,ownershipRows,alertRows,diseaseReports,idRequests,staffPets]=await Promise.all([
                 safeList('pets',80),
                 safeList('petProfiles',80),
                 safeList('petRequests',60),
@@ -541,12 +607,17 @@
                 safeList('ownership',50),
                 safeList(role==='owner'?'ownerAlerts':'diseaseAlerts',40),
                 (role==='admin'||role==='officer')?safeList('diseaseReports',50):Promise.resolve([]),
-                safeList('ownerVerificationRequests',50)
+                safeList('ownerVerificationRequests',50),
+                (role==='admin'||role==='officer')?api.operate('getStaffPetDirectory').then(r=>r?.pets||[]).catch(()=>[]):Promise.resolve([])
             ]);
 
             const petNameById=new Map();
             for(const p of petProfiles)if(p.$id&&p.petName)petNameById.set(p.$id,p.petName);
             for(const p of pets){
+                if(p.$id&&p.petName)petNameById.set(p.$id,p.petName);
+                if(p.petProfileId&&p.petName)petNameById.set(p.petProfileId,p.petName);
+            }
+            for(const p of staffPets||[]){
                 if(p.$id&&p.petName)petNameById.set(p.$id,p.petName);
                 if(p.petProfileId&&p.petName)petNameById.set(p.petProfileId,p.petName);
             }
@@ -903,6 +974,19 @@
         clearTimeout(notifSyncTimer);
         notifSyncTimer=setTimeout(()=>loadNotifications(),delay);
     }
+    window.CityVetRefreshNotifications=()=>scheduleNotifSync(120);
+    function isNetworkErrorText(text){
+        return /failed to fetch|networkerror|network request failed|load failed|offline|unable to load|could not load/i.test(String(text||''));
+    }
+    function clearNetworkErrors(){
+        const selectors=['#cvNotice','#phase4Notice','#p46Notice','#communityNotice','.CV_MODAL_ERROR','.P4_FORM_ERRORS','.COMM_MODAL_ERROR','.CV412_CONFIRM_ERROR','.CV422_MODAL_ERROR'];
+        for(const el of document.querySelectorAll(selectors.join(','))){
+            if(!el.hidden&&isNetworkErrorText(el.textContent)){
+                el.hidden=true;
+                el.textContent='';
+            }
+        }
+    }
     function canRunBackgroundSync(){
         const activeEl=document.activeElement;
         if(activeEl&&['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName)&&activeEl.id!=='searchInput'&&!activeEl.closest('.P4_SIDE_FILTERS,.CV49_ALERT_FILTERS,.CV_FILTER_BOX'))return false;
@@ -911,6 +995,7 @@
         return !hasBlockingModal;
     }
     async function refreshActiveModule(){
+        if(navigator.onLine!==false)clearNetworkErrors();
         if(!canRunBackgroundSync()){pendingSync=true;return;}
         pendingSync=false;
         loadHeaderAvatar();
@@ -918,6 +1003,7 @@
         checkCommunityAnnouncements();
         loadNotifications();
         const activeKey=document.querySelector('#sideNav .is-active')?.dataset.module||'home';
+        const hasModuleError=Boolean(moduleContainer.querySelector('.CV_ERROR,.COMM_ERROR'));
         if(activeKey==='home'){
             if(role==='owner'){
                 loadOwnerFeaturedAdoptions();
@@ -927,19 +1013,24 @@
                 refreshOverview();
             }
         }else if(activeKey==='pets'){
-            openRegistry?.reload(true);
+            openRegistry?.reload(!hasModuleError);
         }else if(activeKey==='community'||(activeKey==='alerts'&&role==='officer')){
-            communityHub?.refresh(true);
+            communityHub?.refresh(!hasModuleError);
         }else if(['surveillance','reports','profile'].includes(activeKey)){
-            if(activeKey!=='profile'||!document.activeElement?.closest('#profileInfoForm'))phase4Hub.refresh(true);
+            if(activeKey!=='profile'||!document.activeElement?.closest('#profileInfoForm'))phase4Hub.refresh(!hasModuleError);
         }else{
-            featureHub.refresh?.(true);
+            featureHub.refresh?.(!hasModuleError);
         }
     }
     function scheduleDynamicSync(delay=380){
         clearTimeout(syncTimer);
         syncTimer=setTimeout(()=>refreshActiveModule(),delay);
     }
+    window.addEventListener('online',()=>{
+        clearNetworkErrors();
+        scheduleNotifSync(80);
+        scheduleDynamicSync(80);
+    });
     api.subscribeRealtime?.(event=>{
         const row=event?.payload;
         if(row?.$id&&alertTable&&(event?.channels||[]).some(c=>c.includes(alertTable))&&!seenAlerts.has(row.$id)&&row.isActive){
@@ -1074,22 +1165,29 @@
         const container = document.getElementById('ownerAnnouncements');
         if (!container) return;
         try {
-            const tableId = api.config.tables.communityAnnouncements;
-            const response = await api.tablesDB.listRows({
-                databaseId: api.config.databaseId,
-                tableId,
-                queries: [window.Appwrite.Query.limit(10)]
-            });
-            const announcements = (response.rows || []).filter(r => r.isActive !== false);
-            
+            let announcements = [];
+            try {
+                const res = await api.operate('communityOfficialNotices');
+                announcements = (res?.notices || []).filter(r => r.isActive !== false);
+            } catch {
+                const tableId = api.config.tables.communityAnnouncements;
+                const response = await api.tablesDB.listRows({
+                    databaseId: api.config.databaseId,
+                    tableId,
+                    queries: [window.Appwrite.Query.limit(10)]
+                });
+                announcements = (response.rows || []).filter(r => r.isActive !== false);
+            }
+            announcements = announcements.filter(r => matchUserBarangay(parseAnnouncementBrgy(r).barangay));
             if (!announcements.length) {
                 container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">No official announcements at this time.</p>';
                 return;
             }
-            const item = announcements[announcements.length - 1]; // Grabs the latest entry
+            const item = announcements[0];
+            const parsed = parseAnnouncementBrgy(item);
             container.innerHTML = `
-                <p style="color: #111827; font-weight: 600; margin: 0 0 0.25rem 0;">${item.title || 'Official Notice'}</p>
-                <p style="color: #6B7280; font-size: 0.95rem; margin: 0;">${item.body || item.message || ''}</p>
+                <p style="color: #111827; font-weight: 600; margin: 0 0 0.25rem 0;">${escapeHtml(item.title || 'Official Notice')}${parsed.barangay ? ` <span style="font-size:0.78rem;font-weight:500;color:#0284c7;">· Brgy. ${escapeHtml(parsed.barangay)}</span>` : ''}</p>
+                <p style="color: #6B7280; font-size: 0.95rem; margin: 0;">${escapeHtml(parsed.body || '')}</p>
             `;
         } catch (e) {
             container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">Unable to load announcements.</p>';

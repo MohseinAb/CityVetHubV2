@@ -26,6 +26,7 @@
         });
     });
     function updateRoleHelp() {
+        if (!roleSelect || !roleHelper) return;
         const role = roleSelect.value;
         roleHelper.textContent = mode === 'register'
             ? (role === 'officer' ? 'Field Officer accounts require email verification and CVO approval. You cannot register as Admin.' : 'Pet Owners receive a verification email to activate their account.')
@@ -33,8 +34,42 @@
             : role === 'officer' ? 'Field Officer access requires an approved Team membership.'
             : 'Use the email and password you registered with.');
     }
-    roleSelect.addEventListener('change', updateRoleHelp);
-    updateRoleHelp();
+    if (roleSelect) {
+        roleSelect.addEventListener('change', updateRoleHelp);
+        updateRoleHelp();
+    }
+    function isNetworkErrorText(text) {
+        return /failed to fetch|networkerror|network request failed|load failed|offline|connection/i.test(String(text || ''));
+    }
+    function checkExistingSession() {
+        if (!api.ready) return;
+        api.context().then(async c => {
+            if (notice && !notice.hidden && isNetworkErrorText(notice.textContent)) show('');
+            if (c.user.prefs?.requireEmailVerification && !c.user.emailVerification) {
+                await api.logout();
+                return;
+            }
+            if (c.role === 'pending_officer') {
+                await api.logout();
+                show('Your Field Officer account is awaiting CVO approval. You cannot sign in until an Administrator approves it.');
+                return;
+            }
+            window.location.replace(api.destination(c.role));
+        }).catch(error => {
+            if (error?.code === 401 && notice && !notice.hidden && isNetworkErrorText(notice.textContent)) {
+                show('');
+            } else if (error?.code !== 401) {
+                show(api.readableError(error));
+            }
+        });
+    }
+    window.addEventListener('online', () => {
+        if (notice && !notice.hidden && isNetworkErrorText(notice.textContent)) show('');
+        checkExistingSession();
+    });
+    form.addEventListener('input', () => {
+        if (notice && !notice.hidden && isNetworkErrorText(notice.textContent)) show('');
+    });
     const params = new URLSearchParams(window.location.search);
     if (params.get('officer') === 'pending') {
         show('Field Officer account created! Please verify your email via the link sent to your inbox. Sign-in will be available after Administrator approval.', 'success');
@@ -59,21 +94,7 @@
                     show('Email verification could not be completed: ' + api.readableError(error));
                 });
         } else {
-            api.context().then(async c => {
-                if (c.user.prefs?.requireEmailVerification && !c.user.emailVerification) {
-                    await api.logout();
-                    return;
-                }
-                if (c.role === 'pending_officer') {
-                    await api.logout();
-                    show('Your Field Officer account is awaiting CVO approval. You cannot sign in until an Administrator approves it.');
-                    return;
-                }
-                window.location.replace(api.destination(c.role));
-            }).catch(error => {
-                // 401 means not signed in; other errors should be visible.
-                if (error?.code !== 401) show(api.readableError(error));
-            });
+            checkExistingSession();
         }
     }
 
@@ -83,7 +104,7 @@
         if (!api.ready) return show('Configure scripts/config.js before signing in.');
         const email = document.getElementById('email').value.trim();
         const password = document.getElementById('password').value;
-        const selectedRole = roleSelect.value;
+        const selectedRole = roleSelect ? roleSelect.value : '';
         if (!email || !password) return show('Enter your email address and password.');
         if (mode === 'register') {
             const name = document.getElementById('fullName').value.trim();
@@ -97,7 +118,7 @@
         try {
             if (mode === 'register') {
                 const result = await api.register({
-                    name: document.getElementById('fullName').value.trim(), email, password, requestedRole: selectedRole
+                    name: document.getElementById('fullName').value.trim(), email, password, requestedRole: selectedRole || 'owner'
                 });
                 if (result.role === 'pending_officer') {
                     try { await api.logout(); } catch {}
@@ -117,11 +138,6 @@
                 if (c.role === 'pending_officer') {
                     await api.logout();
                     show('Field Officer approval is still pending. An Administrator must verify your account before you can sign in.');
-                    return;
-                }
-                if (selectedRole !== c.role) {
-                    await api.logout();
-                    show('This account does not have access as ' + roleSelect.options[roleSelect.selectedIndex].text + '. Select the correct role, or ask a CVO administrator for approval.');
                     return;
                 }
                 window.location.replace(api.destination(c.role));

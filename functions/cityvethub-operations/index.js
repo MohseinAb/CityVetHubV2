@@ -492,8 +492,9 @@ export default async ({req,res,log,error})=>{
             verify(409,claimed.requestId===source.$id,'This official ID has already been assigned to another pet.');
           }
           stage='reviewPet:official-pet-record';
+          const priorVax=petProfile?.vaccinationStatus==='Vaccination recorded'?'Vaccination recorded':'No vaccination on record';
           const petData={ownerId:source.ownerId,ownerName:source.ownerName,petName:source.petName,species:source.species,breed:source.breed,sex:source.sex,ageYears:source.ageYears,barangay:source.barangay,requestId:source.$id,officialRegistryId:registryId,
-            petProfileId:source.petProfileId||'',homeAddress:petProfile?.homeAddress||'',photoFileId:petProfile?.photoFileId||'',lostFoundMessage:petProfile?.lostFoundMessage||'',emergencyContact:petProfile?.emergencyContact||'',sharePublicAddress:!!petProfile?.sharePublicAddress,shareContact:!!petProfile?.shareContact,vaccinationStatus:'No vaccination on record'};
+            petProfileId:source.petProfileId||'',homeAddress:petProfile?.homeAddress||'',photoFileId:petProfile?.photoFileId||'',lostFoundMessage:petProfile?.lostFoundMessage||'',emergencyContact:petProfile?.emergencyContact||'',sharePublicAddress:!!petProfile?.sharePublicAddress,shareContact:!!petProfile?.shareContact,vaccinationStatus:priorVax};
           try{await create(T.pets,source.$id,petData,[roleUser(source.ownerId),roleAdmin,roleOfficer]);}
           catch(e){
             if(e.status!==409)throw e;
@@ -507,7 +508,8 @@ export default async ({req,res,log,error})=>{
           }
         }
         if(petProfile){
-          const changed=await update(T.inventory,petProfile.$id,{verificationStatus:status==='approved'?'verified':'rejected',latestRequestId:source.$id,officialRegistryId:status==='approved'?registryId:(petProfile.officialRegistryId||''),vaccinationStatus:status==='approved'?'Not recorded':(petProfile.vaccinationStatus||'Not recorded')});
+          const invVax=petProfile.vaccinationStatus==='Vaccination recorded'?'Vaccination recorded':(status==='approved'?'Not recorded':(petProfile.vaccinationStatus||'Not recorded'));
+          const changed=await update(T.inventory,petProfile.$id,{verificationStatus:status==='approved'?'verified':'rejected',latestRequestId:source.$id,officialRegistryId:status==='approved'?registryId:(petProfile.officialRegistryId||''),vaccinationStatus:invVax});
           stage='reviewPet:update-public-passport';await syncPassport(changed,source.ownerName);
           if(source.$id!==petProfile.$id)try{await remove(T.passports,source.$id);}catch(e){if(e.status!==404)log?.('Legacy passport cleanup: '+e.message);}
         }
@@ -528,14 +530,32 @@ export default async ({req,res,log,error})=>{
         break;
       }
       case 'addMedical':{
-        verify(403,admin||officer);const pet=await row(T.pets,requireText(data.petId,36));
+        verify(403,admin||officer);
+        const targetId=requireText(data.petId,36);
+        let pet=await row(T.pets,targetId).catch(e=>e.status===404?null:Promise.reject(e));
+        let isInventoryOnly=false;
+        if(!pet){
+          pet=await row(T.inventory,targetId);
+          isInventoryOnly=true;
+        }
         const recordType=accept(data.recordType,['Vaccination','Treatment']);
         const when=new Date(data.dateAdministered);verify(400,!Number.isNaN(when.getTime())&&when.getTime()<=Date.now()+86400000,'Invalid treatment date');
         const expRaw=String(data.expiryDate||'').trim();
         let expiryDate=null;
         if(expRaw){const exp=new Date(expRaw);verify(400,!Number.isNaN(exp.getTime()),'Invalid expiry date');expiryDate=exp.toISOString();}
         result=await create(T.medical,'unique()',{petId:pet.$id,veterinarianId:user.$id,recorderNameSnapshot:optText(user.name||user.email,128),recordType,medicineType:requireText(data.medicineType,100),description:optText(data.description,1000),dateAdministered:when.toISOString(),...(expiryDate?{expiryDate}:{})},[roleAdmin,roleOfficer,roleUser(pet.ownerId)]);
-        if(recordType==='Vaccination'){const data={vaccinationStatus:'Vaccination recorded'};await update(T.pets,pet.$id,data);try{await update(T.passports,pet.petProfileId||pet.$id,data);}catch(e){if(e.status!==404)log?.('Passport status sync failed: '+e.message);}}break;
+        if(recordType==='Vaccination'){
+          const vaxData={vaccinationStatus:'Vaccination recorded'};
+          if(isInventoryOnly){
+            await update(T.inventory,pet.$id,vaxData);
+            try{await update(T.passports,pet.$id,vaxData);}catch(e){if(e.status!==404)log?.('Passport status sync failed: '+e.message);}
+          }else{
+            await update(T.pets,pet.$id,vaxData);
+            if(pet.petProfileId){try{await update(T.inventory,pet.petProfileId,vaxData);}catch(e){if(e.status!==404)log?.('Inventory vax sync failed: '+e.message);}}
+            try{await update(T.passports,pet.petProfileId||pet.$id,vaxData);}catch(e){if(e.status!==404)log?.('Passport status sync failed: '+e.message);}
+          }
+        }
+        break;
       }
       case 'addPetHealthUpload':{
         verify(403,owner);const pet=await row(T.inventory,requireText(data.petProfileId,36));verify(403,pet.ownerId===user.$id);
@@ -788,20 +808,67 @@ export default async ({req,res,log,error})=>{
       }
       case 'getStaffPetDirectory':{
         verify(403,admin||officer,'CVO personnel only');
-        const query=(table)=>api('GET',path(table)+'?limit=100');
-        const verified=(await query(T.pets)).rows||[];
+        const query=(table)=>api('GET',path(table)+'?limit=100').catch(()=>({rows:[]}));
+        const [verifiedRes,inventoryRes,profilesRes,reqsRes]=await Promise.all([
+          query(T.pets),query(T.inventory),query(T.profiles),query(T.req)
+        ]);
+        const verified=verifiedRes.rows||[];
+        const inventory=inventoryRes.rows||[];
+        const ownerNameById=new Map();
+        for(const p of profilesRes.rows||[])if(p.$id&&p.fullName)ownerNameById.set(p.$id,p.fullName);
+        for(const r of reqsRes.rows||[])if(r.ownerId&&r.ownerName&&!ownerNameById.has(r.ownerId))ownerNameById.set(r.ownerId,r.ownerName);
+        for(const p of verified)if(p.ownerId&&p.ownerName&&!ownerNameById.has(p.ownerId))ownerNameById.set(p.ownerId,p.ownerName);
+        const verifiedProfileIds=new Set();
+        for(const p of verified){verifiedProfileIds.add(p.$id);if(p.petProfileId)verifiedProfileIds.add(p.petProfileId);}
+        const combined=[
+          ...verified.map(p=>({...p,verificationStatus:'verified',isVerified:true})),
+          ...inventory.filter(inv=>!verifiedProfileIds.has(inv.$id)).map(inv=>({
+            $id:inv.$id,
+            petProfileId:inv.$id,
+            ownerId:inv.ownerId||'',
+            ownerName:ownerNameById.get(inv.ownerId)||'Pet Owner',
+            petName:inv.petName,
+            species:inv.species,
+            breed:inv.breed,
+            sex:inv.sex||'',
+            ageYears:inv.ageYears??0,
+            barangay:inv.barangay||'',
+            officialRegistryId:inv.officialRegistryId||'',
+            vaccinationStatus:inv.vaccinationStatus||'Not recorded',
+            verificationStatus:inv.verificationStatus||'draft',
+            isVerified:inv.verificationStatus==='verified',
+            photoFileId:inv.photoFileId||''
+          }))
+        ];
         // No home address, private contact, or owner ID documents are returned.
         const directory=[];
-        for(const [index,pet] of verified.entries()){
+        for(const [index,pet] of combined.slice(0,100).entries()){
           let imageUrl='';
-          if(pet.photoFileId&&index<24){
+          if(pet.photoFileId&&index<30){
             try{const file=await api('GET',`/storage/buckets/${MEDIA}/files/${idPart(pet.photoFileId)}`);
               const expire=new Date(Date.now()+4*60*1000).toISOString();
               const token=await api('POST',`/tokens/buckets/${idPart(MEDIA)}/files/${idPart(file.$id)}`,{expire});
               imageUrl=`${ENDPOINT}/storage/buckets/${idPart(MEDIA)}/files/${idPart(file.$id)}/view?project=${encodeURIComponent(PROJECT)}&token=${encodeURIComponent(token.secret)}`;
             }catch(e){log?.('Staff pet thumbnail unavailable '+pet.$id+': '+e.status);}
           }
-          directory.push({$id:pet.$id,petProfileId:pet.petProfileId||'',petName:pet.petName,species:pet.species,breed:pet.breed,barangay:pet.barangay,ownerName:pet.ownerName||'',officialRegistryId:pet.officialRegistryId||'',imageUrl});
+          directory.push({
+            $id:pet.$id,
+            petProfileId:pet.petProfileId||'',
+            ownerId:pet.ownerId||'',
+            petName:pet.petName,
+            species:pet.species,
+            breed:pet.breed,
+            sex:pet.sex||'',
+            ageYears:pet.ageYears??0,
+            barangay:pet.barangay||'',
+            ownerName:pet.ownerName||ownerNameById.get(pet.ownerId)||'Pet Owner',
+            officialRegistryId:pet.officialRegistryId||'',
+            vaccinationStatus:pet.vaccinationStatus||'Not recorded',
+            verificationStatus:pet.verificationStatus||'verified',
+            isVerified:Boolean(pet.isVerified),
+            photoFileId:pet.photoFileId||'',
+            imageUrl
+          });
         }
         result={pets:directory,limitedTo:100};break;
       }

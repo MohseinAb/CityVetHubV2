@@ -86,7 +86,7 @@ function mount({api,current,container}){
  async function refresh(silent=false){
   if(!key)return;
   const prevNotice=container.querySelector('#phase4Notice');
-  const savedNotice=prevNotice&&!prevNotice.hidden?{text:prevNotice.textContent,err:prevNotice.classList.contains('P4_NOTICE_ERROR')}:null;
+  const savedNotice=prevNotice&&!prevNotice.hidden&&!prevNotice.classList.contains('P4_NOTICE_ERROR')?{text:prevNotice.textContent,err:false}:null;
   if(!silent){cleanup();container.innerHTML='<div class="CV_LOADING"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading records…</div>';}
   try{
    if(key==='surveillance')await surveillance();else if(key==='reports')await reports();else if(key==='profile')await profilePage();

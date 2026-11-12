@@ -66,3 +66,71 @@
 .dark-theme .CV_NOTIF_ITEM.is-unread:hover{background:#2c3b54}
 .dark-theme .CV_NOTIF_BODY p{color:#cbd5e1}
 @media(max-width:620px){.CV_NOTIF_DROPDOWN{position:fixed;top:72px;right:12px;left:12px;width:auto;max-width:none}}
+
+/* Searchable & Typo-Tolerant Combobox / Autocomplete */
+.CV_COMBO_SELECT_HIDDEN{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;border:0!important;pointer-events:none!important}
+.CV_COMBOBOX{position:relative;width:100%;font-weight:500}
+.CV_COMBO_CONTROL{position:relative;display:flex;align-items:center;width:100%;background:#fff;border:1px solid #d5ddea;border-radius:10px;transition:border-color .16s ease,box-shadow .16s ease}
+.CV_COMBO_CONTROL:focus-within{border-color:#3478f6;box-shadow:0 0 0 3px rgba(52,120,246,.14)}
+.CV_COMBO_ICON{position:absolute;left:11px;color:#64748b;font-size:12px;pointer-events:none}
+.CV_COMBOBOX .CV_COMBO_INPUT{width:100%!important;border:0!important;background:transparent!important;padding:9px 56px 9px 32px!important;font-size:12.5px!important;color:#111827!important;outline:none!important;box-shadow:none!important;margin:0!important}
+.CV_COMBO_CLEAR,.CV_COMBO_TOGGLE{background:transparent;border:0;color:#64748b;width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex-shrink:0;transition:background .15s,color .15s}
+.CV_COMBO_CLEAR{position:absolute;right:28px;font-size:11px}
+.CV_COMBO_TOGGLE{position:absolute;right:5px;font-size:11px}
+.CV_COMBO_CLEAR:hover,.CV_COMBO_TOGGLE:hover{background:#f1f5f9;color:#1e293b}
+.CV_COMBO_DROPDOWN{position:absolute;top:calc(100% + 5px);left:0;right:0;max-height:240px;overflow-y:auto;background:#fff;border:1px solid #d5ddea;border-radius:12px;box-shadow:0 14px 34px rgba(15,23,42,.16);z-index:80;padding:5px}
+.CV_COMBO_OPTION{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;font-size:12.5px;color:#1e293b;cursor:pointer;line-height:1.35;transition:background .12s}
+.CV_COMBO_OPTION:hover,.CV_COMBO_OPTION.is-active{background:#eff6ff;color:#1d4ed8}
+.CV_COMBO_OPTION.is-selected{font-weight:700;background:#e0ecff;color:#1e40af}
+.CV_COMBO_OPT_TEXT{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.CV_COMBO_MARK{background:#fef08a;color:#854d0e;padding:0 2px;border-radius:3px;font-weight:700}
+.CV_COMBO_SUGGEST_BADGE{font-size:10px;font-weight:700;padding:2px 6px;border-radius:999px;background:#eef2ff;color:#4338ca;white-space:nowrap;flex-shrink:0}
+.CV_COMBO_EMPTY{padding:12px 10px;text-align:center;color:#64748b;font-size:12px}
+
+/* Universal Pagination & Filter/Search Bar */
+[data-cv-page-hidden="1"]{display:none!important}
+.CV_PAGINATE_TOOLBAR{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;margin:8px 0 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px}
+.CV_PAGINATE_SEARCH{position:relative;flex:1 1 240px;min-width:200px;display:flex;align-items:center}
+.CV_PAGINATE_SEARCH > i{position:absolute;left:11px;color:#64748b;font-size:12px;pointer-events:none}
+.CV_PAGINATE_SEARCH input{width:100%;padding:8px 30px 8px 32px;border:1px solid #d5ddea;border-radius:9px;background:#fff;font-size:12.5px;color:#111827;outline:none;transition:border-color .15s,box-shadow .15s}
+.CV_PAGINATE_SEARCH input:focus{border-color:#3478f6;box-shadow:0 0 0 3px rgba(52,120,246,.12)}
+.CV_PAGINATE_CLEAR{position:absolute;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+.CV_PAGINATE_CLEAR:hover{background:#f1f5f9;color:#0f172a}
+.CV_PAGINATE_FILTERS{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.CV_PAGINATE_FILTER_LABEL{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#475569;background:#fff;border:1px solid #d5ddea;border-radius:9px;padding:4px 8px}
+.CV_PAGINATE_FILTER_LABEL span{color:#64748b;font-weight:600}
+.CV_PAGINATE_FILTER_SELECT{border:0;background:transparent;font-size:12px;font-weight:600;color:#0f172a;outline:none;cursor:pointer;padding:2px 4px}
+.CV_PAGINATE_FOOTER{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;margin:10px 0 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;font-size:12px;color:#475569}
+.CV_PAGINATE_INFO strong{color:#0f172a;font-weight:700}
+.CV_PAGINATE_CONTROLS{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.CV_PAGINATE_SIZE{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#64748b}
+.CV_PAGINATE_SIZE_SELECT{border:1px solid #d5ddea;border-radius:8px;background:#fff;padding:4px 8px;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer}
+.CV_PAGINATE_BTNS{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.CV_PAGE_BTN{min-width:30px;height:30px;padding:0 9px;border:1px solid #d5ddea;border-radius:8px;background:#fff;color:#1e293b;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;transition:all .14s ease}
+.CV_PAGE_BTN:hover:not(:disabled){background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}
+.CV_PAGE_BTN.is-active{background:#3478f6;border-color:#3478f6;color:#fff;box-shadow:0 3px 10px rgba(52,120,246,.25)}
+.CV_PAGE_BTN:disabled{opacity:.45;cursor:not-allowed}
+.CV_PAGE_DOTS{padding:0 4px;color:#94a3b8;font-weight:700}
+.CV_PAGINATE_EMPTY{padding:18px;text-align:center;color:#64748b;font-size:12.5px}
+
+/* Dark theme support for Combobox & Pagination */
+.dark-theme .CV_COMBO_CONTROL{background:#1e232c;border-color:#384152}
+.dark-theme .CV_COMBOBOX .CV_COMBO_INPUT{color:#f3f4f6!important}
+.dark-theme .CV_COMBO_CLEAR:hover,.dark-theme .CV_COMBO_TOGGLE:hover{background:#2d3544;color:#f3f4f6}
+.dark-theme .CV_COMBO_DROPDOWN{background:#242933;border-color:#384152;box-shadow:0 16px 38px rgba(0,0,0,.5)}
+.dark-theme .CV_COMBO_OPTION{color:#e2e8f0}
+.dark-theme .CV_COMBO_OPTION:hover,.dark-theme .CV_COMBO_OPTION.is-active{background:#2c3b54;color:#93c5fd}
+.dark-theme .CV_COMBO_OPTION.is-selected{background:#1e3a8a;color:#fff}
+.dark-theme .CV_COMBO_MARK{background:#854d0e;color:#fef08a}
+.dark-theme .CV_COMBO_SUGGEST_BADGE{background:#312e81;color:#c7d2fe}
+.dark-theme .CV_PAGINATE_TOOLBAR,.dark-theme .CV_PAGINATE_FOOTER{background:#1e232c;border-color:#323b4b;color:#9ca3af}
+.dark-theme .CV_PAGINATE_INFO strong{color:#f3f4f6}
+.dark-theme .CV_PAGINATE_SEARCH input,.dark-theme .CV_PAGINATE_FILTER_LABEL,.dark-theme .CV_PAGINATE_SIZE_SELECT,.dark-theme .CV_PAGE_BTN{background:#242933;border-color:#384152;color:#f3f4f6}
+.dark-theme .CV_PAGINATE_FILTER_SELECT{color:#f3f4f6}
+.dark-theme .CV_PAGE_BTN:hover:not(:disabled){background:#2c3b54;border-color:#3b82f6;color:#93c5fd}
+.dark-theme .CV_PAGE_BTN.is-active{background:#3478f6;border-color:#3478f6;color:#fff}
+@media(max-width:640px){
+  .CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER{padding:8px 10px}
+  .CV_PAGINATE_FOOTER{flex-direction:column;align-items:stretch}
+  .CV_PAGINATE_CONTROLS{justify-content:space-between}
+}

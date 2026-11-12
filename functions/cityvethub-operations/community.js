@@ -87,11 +87,54 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
  };
  const official=async()=>{
    ensureUser();
+   const BRGY_TAG_RE=/^\[Barangay:\s*([^\]]+)\]\s*\n?/i;
+   const parseBrgy=(row)=>{
+     const rawBody=String(row?.body||'');
+     const m=rawBody.match(BRGY_TAG_RE);
+     const barangay=String(row?.barangay||(m?m[1]:'')||'').trim();
+     const body=m?rawBody.replace(BRGY_TAG_RE,''):rawBody;
+     return {barangay,body};
+   };
+   const normBrgy=s=>String(s||'').trim().toLowerCase().replace(/^brgy\.?\s*/i,'').replace(/\s*\(pob\.\)\s*/i,'').trim();
+   const matchBrgy=(target,userSet)=>{
+     if(!target)return true;
+     const t=normBrgy(target);
+     if(!t||t==='all'||t==='citywide')return true;
+     for(const b of userSet){
+       const u=normBrgy(b);
+       if(u&&(u===t||u.includes(t)||t.includes(u)))return true;
+     }
+     return false;
+   };
+   const userBarangays=new Set();
+   if(!admin){
+     try{
+       const [prof,invPets,verPets,matchProfs]=await Promise.all([
+         getOrNull('user_profiles',user.$id),
+         readList('pet_profiles',[{attribute:'ownerId',value:user.$id}],100).catch(()=>[]),
+         readList('pets',[{attribute:'ownerId',value:user.$id}],100).catch(()=>[]),
+         readList('adoption_match_profiles',[{attribute:'userId',value:user.$id}],20).catch(()=>[])
+       ]);
+       if(prof?.barangay)userBarangays.add(prof.barangay);
+       if(prof?.assignedArea)userBarangays.add(prof.assignedArea);
+       if(prof?.address)userBarangays.add(prof.address);
+       for(const p of invPets)if(p?.barangay)userBarangays.add(p.barangay);
+       for(const p of verPets)if(p?.barangay)userBarangays.add(p.barangay);
+       for(const mp of matchProfs)if(mp?.preferredBarangay)userBarangays.add(mp.preferredBarangay);
+     }catch{}
+   }
    const notices=await readList(TABLES.announcements,[],100);
    const selected=notices.filter(n=>admin||owner&&['owners','both'].includes(n.audience)||officer&&['officers','both'].includes(n.audience));
    const alertRows=owner?await readList('outbreak_owner_notifications',[],100):await readList('disease_alerts',[],100);
    const a=alertRows.filter(x=>x.isActive).map(x=>({id:x.$id,title:x.title,body:x.message,category:x.isOutbreak?'outbreak':'advisory',audience:owner?'owners':'officers',priority:x.severity||'medium',date:x.issuedAt||x.$createdAt,barangay:x.barangay||'',isActive:true}));
-   const n=selected.map(x=>({id:x.$id,title:x.title,body:x.body,category:'announcement',audience:x.audience,priority:'info',date:x.publishedAt||x.$createdAt,barangay:'',isActive:x.isActive}));
+   const n=selected.map(x=>{
+     const parsed=parseBrgy(x);
+     return {id:x.$id,title:x.title,body:parsed.body,category:'announcement',audience:x.audience,priority:'info',date:x.publishedAt||x.$createdAt,barangay:parsed.barangay,isActive:x.isActive};
+   }).filter(x=>{
+     if(admin||!x.barangay)return true;
+     if(officer&&userBarangays.size===0)return true;
+     return matchBrgy(x.barangay,userBarangays);
+   });
    return [...a,...n].filter(x=>admin||x.isActive).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
  };
  const postsFor=async(ch)=>{
@@ -102,8 +145,8 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
      readList(TABLES.comments,[{attribute:'channelId',value:ch.$id}],100),
      getStaffRoles()
    ]);
-   const counts=new Map();for(const c of comments){counts.set(c.postId,(counts.get(c.postId)||0)+1);}
-   return posts.sort((a,b)=>String(b.$createdAt).localeCompare(String(a.$createdAt))).map(p=>({...cleanPost(p,roles),...(votes.get('post:'+p.$id)||{score:0,upvotes:0,downvotes:0,myVote:0}),commentCount:counts.get(p.$id)||0}));
+   const counts=new Map();for(const c of comments)if(!c.isDeleted)counts.set(c.postId,(counts.get(c.postId)||0)+1);
+   return posts.filter(p=>!p.isDeleted).sort((a,b)=>String(b.$createdAt).localeCompare(String(a.$createdAt))).map(p=>({...cleanPost(p,roles),...(votes.get('post:'+p.$id)||{score:0,upvotes:0,downvotes:0,myVote:0}),commentCount:counts.get(p.$id)||0}));
  };
 
  switch(action){
@@ -294,14 +337,50 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
          });
        }
      }
-     // 4. Official announcements & outbreak advisories
+     // 4. Deleted channels & deleted discussions notifications for their creators
+     const DEL_META_RE=/^\[(ChannelDeleted|PostDeleted):([^:\]]*):([^\]]+)\]/;
+     for(const ch of channels){
+       if(!ch.isArchived||ch.createdById!==user.$id)continue;
+       const m=String(ch.description||'').match(DEL_META_RE);
+       const actorId=m?m[2]:'';
+       const deletedAt=(m&&m[3])||ch.$updatedAt||ch.$createdAt;
+       const byOther=Boolean(actorId&&actorId!==user.$id);
+       items.push({
+         id:'comm_ch_deleted_'+ch.$id,
+         category:'community',
+         kind:'channel_deleted',
+         title:byOther?`Channel #${ch.name} was deleted by Admin`:`Channel #${ch.name} deleted`,
+         message:`Your community channel "#${ch.name}" and all of its discussions have been deleted.`,
+         createdAt:deletedAt,
+         module:'community'
+       });
+     }
+     for(const p of posts){
+       if(!p.isDeleted||p.authorId!==user.$id)continue;
+       const m=String(p.body||'').match(DEL_META_RE);
+       const delKind=m?m[1]:'PostDeleted';
+       const actorId=m?m[2]:'';
+       const deletedAt=(m&&m[3])||p.$updatedAt||p.$createdAt;
+       const ch=channelById.get(p.channelId);
+       const byOther=Boolean(actorId&&actorId!==user.$id);
+       items.push({
+         id:'comm_post_deleted_'+p.$id,
+         category:'community',
+         kind:'post_deleted',
+         title:delKind==='ChannelDeleted'?`Discussion deleted with channel #${ch?.name||'channel'}`:(byOther?'Your discussion was deleted by Admin':'Discussion deleted'),
+         message:`Your discussion "${p.title||'Untitled'}"${ch?` in #${ch.name}`:''} was deleted.`,
+         createdAt:deletedAt,
+         module:'community'
+       });
+     }
+     // 5. Official announcements & outbreak advisories
      for(const n of notices){
        items.push({
          id:'comm_notice_'+n.id,
          category:'alerts',
          kind:n.category||'announcement',
-         title:n.category==='outbreak'?`Declared Outbreak: ${n.title}`:n.category==='advisory'?`CVO Advisory: ${n.title}`:`CVO Announcement: ${n.title}`,
-         message:`${n.barangay?n.barangay+' · ':''}${String(n.body||'').slice(0,100)}`,
+         title:n.category==='outbreak'?`Declared Outbreak: ${n.title}`:n.category==='advisory'?`CVO Advisory: ${n.title}`:(n.barangay?`CVO Announcement (${n.barangay}): ${n.title}`:`CVO Announcement: ${n.title}`),
+         message:`${n.barangay?'Brgy. '+n.barangay+' · ':''}${String(n.body||'').slice(0,100)}`,
          createdAt:n.date,
          module:officer?'alerts':'community'
        });
@@ -359,8 +438,26 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
      const authorName=admin?`${baseName.slice(0,115)} [Admin]`:officer?`${baseName.slice(0,108)} [Field Officer]`:baseName;
      const p=await create(TABLES.posts,'unique()',{channelId:ch.$id,authorId:user.$id,authorName,title,body,imageFileIds:JSON.stringify(ids),isDeleted:false});return {id:p.$id};
    }
+   case 'communityDeleteChannel':{
+     const ch=await get(TABLES.channels,requireValue(data.channelId,36));
+     yes(owned(ch)||admin,'Only the channel creator or a CVO Administrator may delete this channel.');
+     const nowIso=new Date().toISOString();
+     const cleanDesc=String(ch.description||'').replace(/^\[(ChannelDeleted|PostDeleted):[^\]]+\]\s*/,'');
+     await update(TABLES.channels,ch.$id,{isArchived:true,description:`[ChannelDeleted:${user.$id}:${nowIso}] ${cleanDesc}`.slice(0,300)});
+     const [chPosts,chComments]=await Promise.all([
+       readList(TABLES.posts,[{attribute:'channelId',value:ch.$id}],100).catch(()=>[]),
+       readList(TABLES.comments,[{attribute:'channelId',value:ch.$id}],100).catch(()=>[])
+     ]);
+     await Promise.all([
+       ...chPosts.filter(p=>!p.isDeleted).map(p=>update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:`[ChannelDeleted:${user.$id}:${nowIso}]`}).catch(()=>{})),
+       ...chComments.filter(c=>!c.isDeleted).map(c=>update(TABLES.comments,c.$id,{isDeleted:true,body:'[Removed]'}).catch(()=>{}))
+     ]);
+     return {deleted:true,channelId:ch.$id,deletedPosts:chPosts.filter(p=>!p.isDeleted).length};
+   }
    case 'communityDeletePost':{
-     const p=await get(TABLES.posts,requireValue(data.postId,36));yes(p.authorId===user.$id||admin,'Only the author or CVO may remove this discussion.');await update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:'[Removed]'});return {deleted:true};
+     const p=await get(TABLES.posts,requireValue(data.postId,36));yes(p.authorId===user.$id||admin,'Only the author or CVO may remove this discussion.');
+     const nowIso=new Date().toISOString();
+     await update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:`[PostDeleted:${user.$id}:${nowIso}]`});return {deleted:true};
    }
    case 'communityComments':{
      const p=await get(TABLES.posts,requireValue(data.postId,36));const ch=await get(TABLES.channels,p.channelId);await assertVisible(ch);
@@ -402,8 +499,23 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
      return {channels:channels.filter(x=>(x.name+' '+x.description).toLowerCase().includes(term)),posts};
    }
    case 'communityPublishAnnouncement':{
-     yes(admin,'Only CVO Administrators may publish official announcements.');const title=requireValue(data.title,140,'Announcement title'),body=requireValue(data.body,2000,'Announcement');
-     const audience=choice(data.audience,['owners','officers','both']);const n=await create(TABLES.announcements,'unique()',{title,body,audience,isActive:true,issuedById:user.$id,publishedAt:new Date().toISOString()});return {id:n.$id,audience};
+     yes(admin,'Only CVO Administrators may publish official announcements.');const title=requireValue(data.title,140,'Announcement title');
+     const rawBody=requireValue(data.body,2000,'Announcement');
+     const tagMatch=rawBody.match(/^\[Barangay:\s*([^\]]+)\]\s*\n?/i);
+     const barangay=optional(data.barangay||(tagMatch?tagMatch[1]:''),100);
+     const cleanBody=rawBody.replace(/^\[Barangay:\s*([^\]]+)\]\s*\n?/i,'').trim()||rawBody;
+     const storedBody=barangay?`[Barangay: ${barangay}]\n${cleanBody}`.slice(0,2000):cleanBody;
+     const audience=choice(data.audience,['owners','officers','both']);
+     const publishedAt=new Date().toISOString();
+     let n;
+     try{
+       n=await create(TABLES.announcements,'unique()',{title,body:storedBody,audience,barangay,isActive:true,issuedById:user.$id,publishedAt});
+     }catch(e){
+       if(/unknown attribute|invalid document structure|barangay/i.test(String(e?.message||''))){
+         n=await create(TABLES.announcements,'unique()',{title,body:storedBody,audience,isActive:true,issuedById:user.$id,publishedAt});
+       }else throw e;
+     }
+     return {id:n.$id,audience,barangay};
    }
    case 'communityDeactivateAnnouncement':{
      yes(admin,'Only CVO Administrators may deactivate announcements.');const n=await get(TABLES.announcements,requireValue(data.announcementId,36));await update(TABLES.announcements,n.$id,{isActive:false});return {isActive:false};
