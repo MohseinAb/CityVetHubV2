@@ -56,7 +56,7 @@ function mount({api,current,container}){
    }
    return {records,limited};
  }
- function notice(text,err=false){let n=container.querySelector('#phase4Notice');if(!n)return;n.hidden=!text;n.className='P4_NOTICE '+(err?'P4_NOTICE_ERROR':'P4_NOTICE_SUCCESS');n.textContent=text;}
+ function notice(text,err=false){let n=container.querySelector('#phase4Notice');if(n){if(err&&text){n.hidden=false;n.className='P4_NOTICE P4_NOTICE_ERROR';n.textContent=text;}else{n.hidden=true;n.textContent='';}}if(text){if(window.CityVetUI?.toast)window.CityVetUI.toast(text,err?'error':'success');else if(n){n.hidden=false;n.className='P4_NOTICE '+(err?'P4_NOTICE_ERROR':'P4_NOTICE_SUCCESS');n.textContent=text;}}}
  async function uploadIncidentEvidence(form){
    const file=form.querySelector('input[name="reportImage"]')?.files?.[0];
    if(!file)return '';
@@ -85,18 +85,15 @@ function mount({api,current,container}){
  async function open(name){const same=key===name&&container.querySelector('.CV_WORKSPACE');key=name;filter='';await refresh(Boolean(same));}
  async function refresh(silent=false){
   if(!key)return;
-  const prevNotice=container.querySelector('#phase4Notice');
-  const savedNotice=prevNotice&&!prevNotice.hidden&&!prevNotice.classList.contains('P4_NOTICE_ERROR')?{text:prevNotice.textContent,err:false}:null;
-  if(!silent){cleanup();container.innerHTML='<div class="CV_LOADING"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading records…</div>';}
+  if(!silent){cleanup();container.innerHTML=window.CityVetUI?.skeleton('Loading workspace…',4)||'<div class="CV_LOADING"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading records…</div>';}
   try{
    if(key==='surveillance')await surveillance();else if(key==='reports')await reports();else if(key==='profile')await profilePage();
-   if(silent&&savedNotice)notice(savedNotice.text,savedNotice.err);
   }
   catch(e){if(!silent)html(head('DATA CONNECTION','Unable to load this module','Check your connection and access permissions.')+`<div class="CV_ERROR">${E(api.readableError(e))}</div>`);}
  }
  function search(value){filter=String(value||'').toLowerCase().trim();if(key)refresh(true);}
  function popupForm(title,fields,onSave,successMsg='Saved successfully.'){const d=document.createElement('div');d.className='CV_MODAL';d.innerHTML=`<div class="CV_MODAL_CARD P4_DIALOG"><div class="CV_MODAL_HEAD"><h3>${E(title)}</h3><button type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div><form class="P4_PET_FORM">${fields}<div class="P4_FORM_ERRORS" role="alert" hidden></div><div class="P4_FORM_FOOT"><button type="button" class="CV_SOFT CV_BUTTON" data-close>Cancel</button><button type="submit" class="PRIMARY_ACTION">Send Report</button></div></form></div>`;
-  d.addEventListener('click',e=>{if(e.target===d||e.target.closest('[data-close]'))d.remove();});d.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const b=d.querySelector('[type=submit]');b.disabled=true;b.textContent='Saving…';try{await onSave(e.currentTarget);d.remove();await refresh(true);notice(successMsg);}catch(x){const err=d.querySelector('.P4_FORM_ERRORS');err.hidden=false;err.textContent=api.readableError(x);}finally{b.disabled=false;b.textContent='Save changes';}});document.body.append(d);return d;}
+  d.addEventListener('click',e=>{if(e.target===d||e.target.closest('[data-close]'))d.remove();});d.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const b=d.querySelector('[type=submit]');b.disabled=true;b.textContent='Saving…';try{await onSave(e.currentTarget);d.remove();await refresh(true);notice(successMsg);}catch(x){const err=d.querySelector('.P4_FORM_ERRORS');err.hidden=false;err.textContent=api.readableError(x);}finally{b.disabled=false;b.textContent='Save changes';}});document.body.append(d);window.CityVetUI?.upgrade(d);return d;}
  async function profilePage(){
   const user=current.user, name=user.name||user.email;
   try{profile=await api.tablesDB.getRow({databaseId:config.databaseId,tableId:config.tables.userProfiles,rowId:user.$id});}catch(e){if(e.code===404)profile=null;else throw e;}

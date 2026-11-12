@@ -97,14 +97,34 @@
 .CV_PAGINATE_CLEAR{position:absolute;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
 .CV_PAGINATE_CLEAR:hover{background:#f1f5f9;color:#0f172a}
 .CV_PAGINATE_FILTERS{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.CV_PAGINATE_FILTER_LABEL{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#475569;background:#fff;border:1px solid #d5ddea;border-radius:9px;padding:4px 8px}
-.CV_PAGINATE_FILTER_LABEL span{color:#64748b;font-weight:600}
-.CV_PAGINATE_FILTER_SELECT{border:0;background:transparent;font-size:12px;font-weight:600;color:#0f172a;outline:none;cursor:pointer;padding:2px 4px}
-.CV_PAGINATE_FOOTER{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;margin:10px 0 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;font-size:12px;color:#475569}
+.CV_PAGINATE_FILTER_LABEL{
+  display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#475569;
+  background:#fff;border:1px solid #d5ddea;border-radius:999px;padding:5px 12px;
+  box-shadow:0 1px 2px rgba(15,23,42,.03);transition:border-color .15s,box-shadow .15s,background .15s;
+}
+.CV_PAGINATE_FILTER_LABEL:hover{border-color:#93c5fd;background:#fafcff}
+.CV_PAGINATE_FILTER_LABEL:focus-within{border-color:#3478f6;box-shadow:0 0 0 3px rgba(52,120,246,.12)}
+.CV_PAGINATE_FILTER_LABEL span{color:#64748b;font-weight:600;white-space:nowrap}
+.CV_PAGINATE_FILTER_LABEL select,.CV_PAGINATE_FILTER_SELECT{
+  border:0!important;outline:none!important;box-shadow:none!important;background-color:transparent!important;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  font-size:12px;font-weight:700;color:#0f172a;cursor:pointer;padding:1px 18px 1px 4px;margin:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 2px center;
+}
+.CV_PAGINATE_FOOTER{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 14px;margin:10px 0 6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;font-size:12px;color:#475569}
 .CV_PAGINATE_INFO strong{color:#0f172a;font-weight:700}
 .CV_PAGINATE_CONTROLS{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .CV_PAGINATE_SIZE{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#64748b}
-.CV_PAGINATE_SIZE_SELECT{border:1px solid #d5ddea;border-radius:8px;background:#fff;padding:4px 8px;font-size:12px;font-weight:600;color:#0f172a;cursor:pointer}
+.CV_PAGINATE_SIZE_SELECT{
+  border:1px solid #d5ddea;border-radius:999px;background-color:#fff;padding:4px 22px 4px 10px;
+  font-size:12px;font-weight:700;color:#0f172a;cursor:pointer;outline:none;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;transition:border-color .15s,box-shadow .15s;
+}
+.CV_PAGINATE_SIZE_SELECT:hover{border-color:#93c5fd}
+.CV_PAGINATE_SIZE_SELECT:focus{border-color:#3478f6;box-shadow:0 0 0 3px rgba(52,120,246,.12)}
 .CV_PAGINATE_BTNS{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
 .CV_PAGE_BTN{min-width:30px;height:30px;padding:0 9px;border:1px solid #d5ddea;border-radius:8px;background:#fff;color:#1e293b;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;transition:all .14s ease}
 .CV_PAGE_BTN:hover:not(:disabled){background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}
@@ -125,8 +145,13 @@
 .dark-theme .CV_COMBO_SUGGEST_BADGE{background:#312e81;color:#c7d2fe}
 .dark-theme .CV_PAGINATE_TOOLBAR,.dark-theme .CV_PAGINATE_FOOTER{background:#1e232c;border-color:#323b4b;color:#9ca3af}
 .dark-theme .CV_PAGINATE_INFO strong{color:#f3f4f6}
-.dark-theme .CV_PAGINATE_SEARCH input,.dark-theme .CV_PAGINATE_FILTER_LABEL,.dark-theme .CV_PAGINATE_SIZE_SELECT,.dark-theme .CV_PAGE_BTN{background:#242933;border-color:#384152;color:#f3f4f6}
-.dark-theme .CV_PAGINATE_FILTER_SELECT{color:#f3f4f6}
+.dark-theme .CV_PAGINATE_SEARCH input,.dark-theme .CV_PAGINATE_FILTER_LABEL,.dark-theme .CV_PAGINATE_SIZE_SELECT,.dark-theme .CV_PAGE_BTN{background-color:#242933;border-color:#384152;color:#f3f4f6}
+.dark-theme .CV_PAGINATE_FILTER_LABEL:hover{background-color:#2b3240;border-color:#4b6285}
+.dark-theme .CV_PAGINATE_FILTER_LABEL select,.dark-theme .CV_PAGINATE_FILTER_SELECT,.dark-theme .CV_PAGINATE_SIZE_SELECT{
+  color:#f3f4f6;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239ca3af' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.dark-theme .CV_PAGINATE_FILTER_LABEL select option,.dark-theme .CV_PAGINATE_SIZE_SELECT option{background:#242933;color:#f3f4f6}
 .dark-theme .CV_PAGE_BTN:hover:not(:disabled){background:#2c3b54;border-color:#3b82f6;color:#93c5fd}
 .dark-theme .CV_PAGE_BTN.is-active{background:#3478f6;border-color:#3478f6;color:#fff}
 @media(max-width:640px){
@@ -134,3 +159,254 @@
   .CV_PAGINATE_FOOTER{flex-direction:column;align-items:stretch}
   .CV_PAGINATE_CONTROLS{justify-content:space-between}
 }
+
+/* --- Phase 4.25 Visual Polish (UI) & Quality of Life (UX) Enhancements --- */
+
+/* 1.1 Unified Outer Shell & Card Surface Hierarchy */
+.FEATURE_PANEL:has(.CV_WORKSPACE),
+.FEATURE_PANEL:has(.CV_SKELETON_WRAP),
+#registryPanel:has(.REGISTRY_TOP),
+#registryPanel:has(.CV_SKELETON_WRAP){
+  display:block;place-items:initial;width:100%;max-width:none;min-height:calc(100vh - 148px);
+  padding:0!important;background:transparent!important;border:0!important;border-radius:0;box-shadow:none!important;
+}
+.CV49_MODULE_SECTION,.CV_SECTION,.CV411_ADMIN_VERIFICATION{
+  background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px 22px;margin:16px 0;
+  box-shadow:0 4px 18px rgba(15,23,42,.035);
+}
+.CV_HEAD,.REGISTRY_TOP{
+  background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px 24px;margin-bottom:16px;
+  box-shadow:0 4px 18px rgba(15,23,42,.035);
+}
+
+/* 1.2 Compact Toolbar inside Incident Surveillance Side Card */
+.P4_SIDE_CARD .CV_PAGINATE_TOOLBAR{margin:4px 0 10px;padding:7px 9px}
+.P4_SIDE_CARD .CV_PAGINATE_FOOTER{padding:8px 10px;margin:8px 0 0;font-size:11px}
+
+/* 1.3 Even Card Grids & Comfortable Touch Targets */
+.P4_PET_GRID,.P47_ADOPTION_GRID{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))!important;gap:18px}
+.P4_PET_CARD,.P47_ADOPT_CARD{max-width:none!important}
+.P46_CLICK_CARD .P4_PET_ACTIONS .CV_BUTTON,.P46_CLICK_CARD .P4_PET_ACTIONS .PRIMARY_ACTION,
+.P47_ADOPT_CARD .CV_RECORD_BOTTOM .CV_BUTTON{min-height:38px;font-size:11.5px;padding:9px 12px}
+
+/* 1.4 Harmonized Pet Owner Home Dashboard Palette */
+.card-panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px 28px;
+  box-shadow:0 4px 18px rgba(15,23,42,.035);margin-bottom:18px;
+}
+.OWNER_HERO_CARD{
+  background:linear-gradient(125deg,#1e4db7 0%,#3478f6 60%,#6aa6ff 100%);
+  border-color:#2563eb;color:#fff;
+}
+.OWNER_HERO_CARD h1{font-size:clamp(24px,2.8vw,34px);color:#fff!important;margin-bottom:8px;letter-spacing:-.8px}
+.OWNER_HERO_CARD p{font-size:13.5px;color:#e6f0ff!important;margin-bottom:18px;max-width:600px;line-height:1.6}
+.BUTTON_SOLID{
+  background:#fff;color:#1d4ed8;border:1.5px solid #fff;border-radius:11px;padding:10px 18px;
+  font-size:12.5px;font-weight:700;min-height:40px;box-shadow:0 4px 14px rgba(0,0,0,.12);
+}
+.BUTTON_SOLID:hover{background:#eff6ff;border-color:#eff6ff;color:#1e40af}
+.OWNER_HERO_CARD .BUTTON_OUTLINE{
+  background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.45);color:#fff;
+  border-radius:11px;padding:10px 18px;font-size:12.5px;font-weight:700;min-height:40px;
+}
+.OWNER_HERO_CARD .BUTTON_OUTLINE:hover{background:rgba(255,255,255,.24)}
+body.dark-theme .OWNER_HERO_CARD{background:linear-gradient(125deg,#173a7c 0%,#2359bb 60%,#366ea8 100%);border-color:#3b5f90}
+body.dark-theme .BUTTON_SOLID{background:#fff;color:#1e3a8a;border-color:#fff}
+
+/* 1.5 Combobox Dropup & 38px Option Touch Targets */
+.CV_COMBO_DROPDOWN.is-dropup{top:auto;bottom:calc(100% + 5px);box-shadow:0 -12px 32px rgba(15,23,42,.18)}
+.CV_COMBO_OPTION{min-height:38px;padding:8px 11px}
+
+/* 2.1 Interactive Medical Pet Directory Cards & Quick Treat Button */
+.CV49_SUB_HINT{display:block;font-size:11px;color:#64748b;font-weight:500;margin-top:2px}
+.CV49_CLICKABLE_PET{cursor:pointer;transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease}
+.CV49_CLICKABLE_PET:hover,.CV49_CLICKABLE_PET:focus-visible{
+  transform:translateY(-2px);border-color:#93c5fd;box-shadow:0 10px 24px rgba(52,120,246,.1);outline:none;
+}
+.CV49_CLICKABLE_PET.is-selected{
+  border-color:#3478f6;background:#eff6ff;box-shadow:0 0 0 2px rgba(52,120,246,.22);
+}
+.dark-theme .CV49_CLICKABLE_PET.is-selected{background:#1e3a5f;border-color:#60a5fa}
+.CV49_CARD_SIDE{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:auto}
+.CV49_QUICK_TREAT{padding:5px 10px!important;min-height:28px!important;font-size:11px!important;border-radius:8px!important}
+
+/* 2.2 Global Header Quick-Jump Command Dropdown */
+.SEARCH_PANEL{position:relative}
+.CV_CMD_DROPDOWN{
+  position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;box-shadow:0 16px 40px rgba(15,23,42,.16);padding:6px;z-index:1200;max-height:340px;overflow-y:auto;
+}
+.CV_CMD_HEADER{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.1px;color:#64748b;padding:6px 10px 4px}
+.CV_CMD_ITEM{
+  width:100%;display:flex;align-items:center;gap:11px;padding:8px 10px;border:0;border-radius:10px;
+  background:transparent;color:var(--ink);text-align:left;cursor:pointer;transition:background .12s;
+}
+.CV_CMD_ITEM:hover,.CV_CMD_ITEM.is-active{background:#eff6ff}
+.dark-theme .CV_CMD_ITEM:hover,.dark-theme .CV_CMD_ITEM.is-active{background:#263349}
+.CV_CMD_ICON{width:32px;height:32px;border-radius:9px;background:#eaf2ff;color:#3478f6;display:grid;place-items:center;flex-shrink:0;font-size:13px}
+.dark-theme .CV_CMD_ICON{background:#233b67;color:#93c5fd}
+.CV_CMD_TEXT{display:flex;flex-direction:column;min-width:0}
+.CV_CMD_TEXT strong{font-size:12.5px;font-weight:700;color:var(--ink)}
+.CV_CMD_TEXT small{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 2.5 Floating Toast Notifications & Shimmer Skeletons */
+.CV_TOAST_HOST{
+  position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;
+  max-width:380px;width:calc(100vw - 32px);pointer-events:none;
+}
+.CV_TOAST{
+  pointer-events:auto;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:13px;
+  background:#fff;border:1px solid #e2e8f0;box-shadow:0 14px 34px rgba(15,23,42,.16);
+  font-size:12.5px;font-weight:600;color:#0f172a;animation:cvToastIn .2s ease-out;transition:opacity .18s,transform .18s;
+}
+.CV_TOAST.is-leaving{opacity:0;transform:translateY(-6px)}
+.CV_TOAST.is-success{border-color:#10b981}
+.CV_TOAST.is-success > i{color:#10b981;font-size:16px}
+.CV_TOAST.is-error{border-color:#ef4444}
+.CV_TOAST.is-error > i{color:#ef4444;font-size:16px}
+.CV_TOAST > span{flex:1;line-height:1.4}
+.CV_TOAST_CLOSE{border:0;background:transparent;color:#64748b;width:24px;height:24px;border-radius:6px;cursor:pointer;display:grid;place-items:center}
+.CV_TOAST_CLOSE:hover{background:#f1f5f9;color:#0f172a}
+.dark-theme .CV_TOAST{background:#242933;border-color:#384152;color:#f3f4f6}
+@keyframes cvToastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+.CV_SKELETON_WRAP{display:flex;flex-direction:column;gap:16px;width:100%;padding:4px 0}
+.CV_SKELETON_HEAD{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:10px}
+.CV_SKELETON_STATS{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.CV_SKELETON_GRID{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.CV_SKEL_LINE,.CV_SKEL_CARD{
+  background:linear-gradient(90deg,rgba(148,163,184,.12) 25%,rgba(148,163,184,.24) 50%,rgba(148,163,184,.12) 75%);
+  background-size:200% 100%;animation:cvSkelPulse 1.4s ease-in-out infinite;border-radius:12px;
+}
+.CV_SKEL_LINE.is-kicker{width:120px;height:10px}
+.CV_SKEL_LINE.is-title{width:260px;height:26px}
+.CV_SKEL_LINE.is-sub{width:380px;max-width:90%;height:13px}
+.CV_SKEL_CARD.is-stat{height:68px;border-radius:14px;border:1px solid var(--line)}
+.CV_SKEL_CARD{height:150px;border-radius:16px;border:1px solid var(--line)}
+@keyframes cvSkelPulse{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(max-width:700px){.CV_SKELETON_STATS,.CV_SKELETON_GRID{grid-template-columns:1fr}}
+
+/* --- Phase 4.26 Modernized Compact Stat Cards, Directory Cards & Micro-Polish --- */
+
+/* 3.1 Compact, Single-Row Stat / KPI Cards across all modules */
+.CV_STATS,.P4_SUMMARY_GRID{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fit,minmax(160px,1fr))!important;
+  gap:11px!important;
+  margin:10px 0 16px!important;
+}
+.P4_REPORT_KPIS{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fit,minmax(155px,1fr))!important;
+  gap:11px!important;
+  margin:10px 0 16px!important;
+}
+.CV_STAT,.P4_SUMMARY,.P4_REPORT_KPIS .P4_STAT{
+  padding:12px 15px!important;
+  min-height:0!important;
+  border-radius:13px!important;
+  gap:4px!important;
+  box-shadow:0 2px 8px rgba(15,23,42,.025);
+  transition:border-color .15s ease,transform .15s ease,box-shadow .15s ease;
+}
+.CV_STAT:hover,.P4_SUMMARY:hover,.P4_REPORT_KPIS .P4_STAT:hover{
+  border-color:#bdd4ff;
+  box-shadow:0 6px 16px rgba(52,120,246,.06);
+}
+.dark-theme .CV_STAT:hover,.dark-theme .P4_SUMMARY:hover,.dark-theme .P4_REPORT_KPIS .P4_STAT:hover{
+  border-color:#3b5f90;
+}
+.CV_STAT span,.P4_SUMMARY span,.P4_REPORT_KPIS .P4_STAT_TOP{
+  font-size:11px!important;
+  font-weight:600;
+  color:var(--sub);
+  line-height:1.3;
+}
+.CV_STAT strong,.P4_SUMMARY strong,.P4_REPORT_KPIS .P4_STAT strong{
+  font-size:21px!important;
+  font-weight:800;
+  letter-spacing:-.5px;
+  line-height:1.15;
+  margin:2px 0 0!important;
+  color:var(--ink);
+}
+.P4_REPORT_KPIS .P4_STAT small{
+  font-size:10px;
+  color:var(--sub);
+  margin-top:2px;
+  display:block;
+}
+
+/* 3.2 Compact & Modernized Pet Directory Cards (Medical & Traceability) */
+.CV49_PET_DIRECTORY{
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr))!important;
+  gap:11px!important;
+}
+.CV49_DIRECTORY_CARD{
+  padding:11px 13px!important;
+  min-height:0!important;
+  border-radius:13px!important;
+  gap:11px!important;
+}
+.CV49_DIRECTORY_CARD:not(:has(.CV410_DIRECTORY_ACTIONS)){
+  display:flex!important;
+  align-items:center!important;
+}
+.CV49_DIRECTORY_CARD:has(.CV410_DIRECTORY_ACTIONS){
+  grid-template-columns:54px minmax(0,1fr)!important;
+  padding:12px 14px!important;
+}
+.CV49_DIRECTORY_CARD .CV49_DIRECTORY_PHOTO{
+  width:52px!important;
+  height:52px!important;
+  flex:0 0 52px!important;
+  border-radius:11px!important;
+}
+.CV49_DIRECTORY_CARD strong,.CV49_DIRECTORY_CARD .CV410_DIRECTORY_DETAILS strong{
+  font-size:13.5px!important;
+  font-weight:750;
+  line-height:1.25;
+}
+.CV49_DIRECTORY_CARD .CV410_DIRECTORY_DETAILS{
+  gap:4px!important;
+}
+.CV49_DIRECTORY_CARD .CV410_DIRECTORY_ACTIONS{
+  padding-top:8px!important;
+}
+.CV49_DIRECTORY_CARD .CV410_DIRECTORY_ACTIONS .CV_BUTTON{
+  padding:7px 10px!important;
+  min-height:32px!important;
+  font-size:11px!important;
+  border-radius:9px!important;
+}
+
+/* 3.3 Sleek Table Spacing, Report Rows & Pet Owner Home Announcements */
+.CV_TABLE th{padding:12px 14px!important;font-size:10px;letter-spacing:.6px}
+.CV_TABLE td{padding:12px 14px!important}
+.CV_REPORT_ROW{padding:13px 16px!important;border-radius:13px!important}
+.CV_REPORT_ROW strong{font-size:20px!important;font-weight:800}
+.CV_HEAD,.REGISTRY_TOP{padding:16px 20px!important;border-radius:16px!important;margin-bottom:14px!important}
+.CV_HEAD h2,.REGISTRY_TOP h2{font-size:24px!important;letter-spacing:-.7px;margin:4px 0!important}
+.CV49_MODULE_SECTION,.CV_SECTION,.CV411_ADMIN_VERIFICATION{padding:16px 18px!important;border-radius:16px!important;margin:13px 0!important}
+.CV49_SECTION_HEAD{margin-bottom:12px!important}
+.CV49_SECTION_HEAD h3,.CV_SECTION h3{font-size:16.5px!important}
+
+/* Pet Owner Home Announcement Card & List Items */
+.CV_OWNER_ANNOUNCE_EMPTY{color:var(--sub);font-size:13px;margin:0}
+.CV_OWNER_ANNOUNCE_LIST{display:flex;flex-direction:column;gap:10px}
+.CV_OWNER_ANNOUNCE_ITEM{
+  padding:12px 14px;border-radius:12px;background:#fff;border:1px solid var(--line);
+  display:flex;flex-direction:column;gap:5px;
+}
+.dark-theme .CV_OWNER_ANNOUNCE_ITEM{background:var(--surface)}
+.CV_OWNER_ANNOUNCE_ITEM.is-outbreak{border-color:#fca5a5;background:rgba(239,68,68,0.06)}
+.CV_OWNER_ANNOUNCE_TOP{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.CV_OWNER_ANNOUNCE_TOP strong{font-size:13.5px;font-weight:750;color:var(--ink)}
+.CV_OWNER_ANNOUNCE_TAGS{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.CV_OWNER_ANNOUNCE_TAG{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;
+  background:#eaf2ff;color:#1d4ed8;font-size:10.5px;font-weight:700;
+}
+.dark-theme .CV_OWNER_ANNOUNCE_TAG{background:#233b67;color:#93c5fd}
+.CV_OWNER_ANNOUNCE_DATE{font-size:11px;color:var(--sub);font-weight:500}
+.CV_OWNER_ANNOUNCE_ITEM p{font-size:12.5px;color:var(--sub);line-height:1.55;margin:0}

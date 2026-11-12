@@ -130,24 +130,46 @@ function shouldUpgradeSelect(select){
   return false;
 }
 
+function positionDropdown(controlEl,dropdownEl){
+  try{
+    const rect=controlEl.getBoundingClientRect();
+    const modalBox=controlEl.closest('.CV_MODAL_CARD,.COMM_MODAL_DIALOG');
+    const bottomBound=modalBox?modalBox.getBoundingClientRect().bottom:window.innerHeight;
+    const topBound=modalBox?modalBox.getBoundingClientRect().top:0;
+    const spaceBelow=bottomBound-rect.bottom;
+    const spaceAbove=rect.top-topBound;
+    dropdownEl.classList.toggle('is-dropup',spaceBelow<220&&spaceAbove>spaceBelow);
+  }catch{}
+}
+
+let comboIdSeq=0;
 function upgradeSelectCombobox(select){
   if(!shouldUpgradeSelect(select))return;
   select.dataset.cvComboUpgraded='1';
+  if(select.required){
+    select.dataset.cvRequired='1';
+    select.required=false;
+  }
   const wrap=document.createElement('div');
   wrap.className='CV_COMBOBOX';
   select.parentNode.insertBefore(wrap,select);
   select.classList.add('CV_COMBO_SELECT_HIDDEN');
   select.tabIndex=-1;
-  wrap.appendChild(select);
+
+  const comboInputId=select.id?`${select.id}_combo`:`cv_combo_${++comboIdSeq}`;
+  const parentLabel=wrap.closest('label');
+  if(parentLabel&&!parentLabel.hasAttribute('for')){
+    parentLabel.setAttribute('for',comboInputId);
+  }
 
   const control=document.createElement('div');
   control.className='CV_COMBO_CONTROL';
-  control.innerHTML=`<i class="fa-solid fa-magnifying-glass CV_COMBO_ICON" aria-hidden="true"></i><input type="text" class="CV_COMBO_INPUT" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-autocomplete="list"><button type="button" class="CV_COMBO_CLEAR" tabindex="-1" title="Clear search" aria-label="Clear search" hidden><i class="fa-solid fa-xmark"></i></button><button type="button" class="CV_COMBO_TOGGLE" tabindex="-1" title="Show options" aria-label="Show options"><i class="fa-solid fa-chevron-down"></i></button>`;
+  control.innerHTML=`<i class="fa-solid fa-magnifying-glass CV_COMBO_ICON" aria-hidden="true"></i><input id="${H(comboInputId)}" type="text" class="CV_COMBO_INPUT" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-autocomplete="list"><button type="button" class="CV_COMBO_CLEAR" tabindex="-1" title="Clear search" aria-label="Clear search" hidden><i class="fa-solid fa-xmark"></i></button><button type="button" class="CV_COMBO_TOGGLE" tabindex="-1" title="Show options" aria-label="Show options"><i class="fa-solid fa-chevron-down"></i></button>`;
   const dropdown=document.createElement('div');
   dropdown.className='CV_COMBO_DROPDOWN';
   dropdown.setAttribute('role','listbox');
   dropdown.hidden=true;
-  wrap.append(control,dropdown);
+  wrap.append(control,select,dropdown);
 
   const input=control.querySelector('.CV_COMBO_INPUT');
   const clearBtn=control.querySelector('.CV_COMBO_CLEAR');
@@ -171,6 +193,11 @@ function upgradeSelectCombobox(select){
 
   function syncFromSelect(){
     internalSync=true;
+    if(select.required){
+      select.dataset.cvRequired='1';
+      select.required=false;
+    }
+    const isReq=select.dataset.cvRequired==='1'&&!select.disabled;
     const {placeholderOpt,selectable}=readOptions();
     input.disabled=select.disabled;
     toggleBtn.disabled=select.disabled;
@@ -187,6 +214,12 @@ function upgradeSelectCombobox(select){
       input.value=(chosen.textContent||'').trim();
       input.placeholder='Type to search or select…';
       clearBtn.hidden=select.disabled||!input.value;
+    }
+    input.required=isReq;
+    if(isReq&&!select.value){
+      input.setCustomValidity('Please select an option from the list.');
+    }else{
+      input.setCustomValidity('');
     }
     isFiltering=false;
     internalSync=false;
@@ -227,6 +260,7 @@ function upgradeSelectCombobox(select){
     if(select.disabled)return;
     renderList(filterQuery);
     dropdown.hidden=false;
+    positionDropdown(control,dropdown);
     wrap.classList.add('is-open');
     input.setAttribute('aria-expanded','true');
   }
@@ -311,12 +345,19 @@ function upgradeSelectCombobox(select){
     const optEl=e.target.closest('[data-combo-idx]');
     if(!optEl)return;
     e.preventDefault();
+    e.stopPropagation();
     const idx=Number(optEl.dataset.comboIdx);
     if(currentMatches[idx])commitOption(currentMatches[idx].opt);
   });
 
+  dropdown.addEventListener('click',e=>{
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
   clearBtn.addEventListener('mousedown',e=>{
     e.preventDefault();
+    e.stopPropagation();
     if(select.disabled)return;
     input.value='';
     isFiltering=true;
@@ -327,6 +368,7 @@ function upgradeSelectCombobox(select){
 
   toggleBtn.addEventListener('mousedown',e=>{
     e.preventDefault();
+    e.stopPropagation();
     if(select.disabled)return;
     if(dropdown.hidden){
       input.focus();
@@ -336,25 +378,27 @@ function upgradeSelectCombobox(select){
     }
   });
 
-  input.addEventListener('blur',()=>{
-    setTimeout(()=>{
-      if(wrap.contains(document.activeElement))return;
-      if(isFiltering){
-        const raw=input.value.trim();
-        const {selectable}=readOptions();
-        const emptyOpt=selectable.find(o=>o.isEmptyOption);
-        if(!raw&&emptyOpt){
-          commitOption(emptyOpt);
-          return;
-        }
-        if(raw&&currentMatches.length>0){
-          commitOption(currentMatches[0].opt);
-          return;
-        }
+  function commitPendingSearch(){
+    if(isFiltering){
+      const raw=input.value.trim();
+      const {selectable}=readOptions();
+      const emptyOpt=selectable.find(o=>o.isEmptyOption);
+      if(!raw&&emptyOpt){
+        commitOption(emptyOpt);
+        return;
       }
-      syncFromSelect();
-      closeDropdown();
-    },140);
+      if(raw&&currentMatches.length>0){
+        commitOption(currentMatches[0].opt);
+        return;
+      }
+    }
+    syncFromSelect();
+    closeDropdown();
+  }
+
+  input.addEventListener('blur',e=>{
+    if(e.relatedTarget&&wrap.contains(e.relatedTarget))return;
+    commitPendingSearch();
   });
 
   select.addEventListener('change',()=>{if(!internalSync)syncFromSelect();});
@@ -398,6 +442,7 @@ function upgradeInputAutocomplete(input){
     activeIndex=query?0:-1;
     dropdown.innerHTML=matches.slice(0,40).map((m,i)=>`<div class="CV_COMBO_OPTION ${i===activeIndex?'is-active':''}" data-auto-idx="${i}"><span class="CV_COMBO_OPT_TEXT">${highlightMatch(m.label,query)}</span>${m.autocorrect?'<span class="CV_COMBO_SUGGEST_BADGE">Suggested</span>':''}</div>`).join('');
     dropdown.hidden=false;
+    positionDropdown(control,dropdown);
     wrap.classList.add('is-open');
   }
 
@@ -615,6 +660,61 @@ function extractFiltersForContainer(el,items,kind){
     return filters;
   }
 
+  if(kind==='adoption-grid'){
+    const barangays=new Set();
+    items.forEach(card=>{
+      const b=(card.dataset.barangay||'').trim();
+      if(b&&b!=='Barangay unknown')barangays.add(b);
+    });
+    filters.push({
+      key:'species',
+      label:'Species',
+      options:['Dog','Cat'],
+      match:(card,val)=>(card.dataset.species||'').toLowerCase()===val.toLowerCase()||card.textContent.toLowerCase().includes(val.toLowerCase())
+    });
+    filters.push({
+      key:'housing',
+      label:'Housing',
+      options:['any','apartment','house','yard'],
+      match:(card,val)=>{
+        const req=(card.dataset.housing||'any').toLowerCase();
+        const h=val.toLowerCase();
+        return !req||req==='any'||req===h||(h==='yard'&&['house','apartment'].includes(req))||(h==='house'&&req==='apartment');
+      }
+    });
+    if(barangays.size>=1){
+      filters.push({
+        key:'barangay',
+        label:'Barangay',
+        options:[...barangays].sort((a,b)=>a.localeCompare(b)),
+        match:(card,val)=>(card.dataset.barangay||'').toLowerCase()===val.toLowerCase()
+      });
+    }
+    return filters;
+  }
+
+  if(kind==='alert-list'){
+    filters.push({
+      key:'priority',
+      label:'Priority',
+      options:['high','medium','low'],
+      match:(card,val)=>(card.dataset.severity||'').toLowerCase()===val.toLowerCase()
+    });
+    filters.push({
+      key:'type',
+      label:'Type',
+      options:['outbreak','advisory'],
+      match:(card,val)=>(card.dataset.kind||'').toLowerCase()===val.toLowerCase()
+    });
+    filters.push({
+      key:'status',
+      label:'Status',
+      options:['active','inactive'],
+      match:(card,val)=>(card.dataset.active||'').toLowerCase()===val.toLowerCase()
+    });
+    return filters;
+  }
+
   return filters;
 }
 
@@ -638,7 +738,7 @@ function setupPaginatedContainer(el,cfg){
   const toolbar=document.createElement('div');
   toolbar.className='CV_PAGINATE_TOOLBAR';
   toolbar.innerHTML=(!hideToolbarSearch?`<div class="CV_PAGINATE_SEARCH"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" class="CV_PAGINATE_INPUT" placeholder="${H(searchPlaceholder)}" value="${H(state.query)}" aria-label="${H(searchPlaceholder)}"><button type="button" class="CV_PAGINATE_CLEAR" aria-label="Clear search" ${state.query?'':'hidden'}><i class="fa-solid fa-xmark"></i></button></div>`:'')+
-    (filters.length?`<div class="CV_PAGINATE_FILTERS">${filters.map(f=>`<label class="CV_PAGINATE_FILTER_LABEL"><span>${H(f.label)}</span><select data-filter-key="${H(f.key)}"><option value="">All</option>${f.options.map(o=>`<option value="${H(o)}" ${state.filters[f.key]===o?'selected':''}>${H(o)}</option>`).join('')}</select></label>`).join('')}</div>`:'');
+    (filters.length?`<div class="CV_PAGINATE_FILTERS">${filters.map(f=>`<label class="CV_PAGINATE_FILTER_LABEL"><span>${H(f.label)}</span><select class="CV_PAGINATE_FILTER_SELECT" data-filter-key="${H(f.key)}"><option value="">All</option>${f.options.map(o=>`<option value="${H(o)}" ${state.filters[f.key]===o?'selected':''}>${H(o)}</option>`).join('')}</select></label>`).join('')}</div>`:'');
 
   // Create Footer (Info + Page Size + Page Buttons)
   const footer=document.createElement('div');
@@ -793,7 +893,119 @@ function setupPaginatedContainer(el,cfg){
   });
 
   el._cvReapplyPagination=apply;
+  el._cvSetSearch=q=>{
+    state.query=String(q||'');
+    state.page=1;
+    if(searchInput)searchInput.value=state.query;
+    if(clearBtn)clearBtn.hidden=!state.query;
+    apply();
+  };
+  el._cvGetSearch=()=>state.query||'';
   apply();
+}
+
+function setContainerSearch(el,query=''){
+  if(!el)return;
+  if(typeof el._cvSetSearch==='function'){
+    el._cvSetSearch(query);
+  }
+}
+
+function setPageSearch(query='',root=document){
+  const scope=root.nodeType===1?root:document;
+  scope.querySelectorAll('[data-cv-paginated="1"]').forEach(el=>{
+    if(el.offsetParent!==null&&typeof el._cvSetSearch==='function'){
+      el._cvSetSearch(query);
+    }
+  });
+}
+
+function toast(text,kind='success',duration=4200){
+  const msg=String(text||'').trim();
+  if(!msg)return;
+  let host=document.getElementById('cvToastHost');
+  if(!host){
+    host=document.createElement('div');
+    host.id='cvToastHost';
+    host.className='CV_TOAST_HOST';
+    host.setAttribute('aria-live','polite');
+    document.body.appendChild(host);
+  }
+  const item=document.createElement('div');
+  const isErr=kind==='error'||kind===true;
+  item.className=`CV_TOAST ${isErr?'is-error':'is-success'}`;
+  item.innerHTML=`<i class="fa-solid ${isErr?'fa-circle-exclamation':'fa-circle-check'}" aria-hidden="true"></i><span>${H(msg)}</span><button type="button" class="CV_TOAST_CLOSE" aria-label="Dismiss notification"><i class="fa-solid fa-xmark"></i></button>`;
+  const remove=()=>{
+    if(!item.isConnected)return;
+    item.classList.add('is-leaving');
+    setTimeout(()=>item.remove(),180);
+  };
+  item.querySelector('.CV_TOAST_CLOSE')?.addEventListener('click',remove);
+  host.appendChild(item);
+  while(host.children.length>4)host.firstElementChild.remove();
+  if(duration>0)setTimeout(remove,duration);
+}
+
+function confirmModal({title='Confirm action',description='Are you sure you want to proceed?',confirmLabel='Confirm',danger=false,onConfirm}){
+  const overlay=document.createElement('div');
+  overlay.className='CV_MODAL CV412_CONFIRM';
+  overlay.innerHTML=`<div class="CV_MODAL_CARD CV412_CONFIRM_CARD" role="dialog" aria-modal="true" aria-labelledby="cvConfirmModalTitle"><div class="CV_MODAL_HEAD"><h3 id="cvConfirmModalTitle">${H(title)}</h3><button type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div><p class="CV412_CONFIRM_TEXT">${H(description)}</p><div class="CV412_CONFIRM_ERROR" role="alert" hidden></div><div class="CV412_CONFIRM_FOOT"><button type="button" class="CV_SOFT CV_BUTTON" data-close>Cancel</button><button type="button" class="CV_BUTTON ${danger?'CV412_DANGER':'PRIMARY_ACTION'}" data-confirm>${H(confirmLabel)}</button></div></div>`;
+  const close=()=>overlay.remove();
+  overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))close();});
+  overlay.querySelector('[data-confirm]').addEventListener('click',async()=>{
+    const btn=overlay.querySelector('[data-confirm]');
+    btn.disabled=true;
+    const prev=btn.textContent;
+    btn.textContent='Processing…';
+    try{
+      await onConfirm?.();
+      close();
+    }catch(err){
+      const out=overlay.querySelector('.CV412_CONFIRM_ERROR');
+      out.hidden=false;
+      out.textContent=err?.message||'Unable to complete this action.';
+      btn.disabled=false;
+      btn.textContent=prev;
+    }
+  });
+  document.body.appendChild(overlay);
+  enhanceModals(overlay);
+  overlay.querySelector('[data-confirm]')?.focus();
+  return overlay;
+}
+
+function skeleton(title='Loading workspace…',cards=4){
+  return `<div class="CV_SKELETON_WRAP" role="status" aria-label="${H(title)}"><div class="CV_SKELETON_HEAD"><div class="CV_SKEL_LINE is-kicker"></div><div class="CV_SKEL_LINE is-title"></div><div class="CV_SKEL_LINE is-sub"></div></div><div class="CV_SKELETON_STATS">${Array.from({length:3},()=>`<div class="CV_SKEL_CARD is-stat"></div>`).join('')}</div><div class="CV_SKELETON_GRID">${Array.from({length:cards},()=>`<div class="CV_SKEL_CARD"></div>`).join('')}</div></div>`;
+}
+
+function enhanceModals(root=document){
+  const modals=[];
+  if(root.nodeType===1&&root.matches?.('.CV_MODAL,.COMM_MODAL'))modals.push(root);
+  if(root.querySelectorAll)modals.push(...root.querySelectorAll('.CV_MODAL,.COMM_MODAL'));
+  for(const m of modals){
+    if(m.dataset.cvModalEnhanced==='1')continue;
+    m.dataset.cvModalEnhanced='1';
+    setTimeout(()=>{
+      if(!m.isConnected)return;
+      const firstInput=m.querySelector('.CV_COMBO_INPUT, input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]), select:not(.CV_COMBO_SELECT_HIDDEN), textarea');
+      if(firstInput){
+        firstInput.focus();
+      }else{
+        m.querySelector('[data-confirm],[data-close]')?.focus();
+      }
+    },15);
+    m.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){
+        const openCombo=m.querySelector('.CV_COMBOBOX.is-open');
+        if(openCombo)return;
+        const closeBtn=m.querySelector('[data-close]');
+        if(closeBtn){e.preventDefault();closeBtn.click();}else m.remove();
+      }else if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&e.target?.tagName==='TEXTAREA'){
+        const form=e.target.closest('form');
+        if(form){e.preventDefault();form.requestSubmit();}
+      }
+    });
+  }
 }
 
 function paginateIfNeeded(el,cfg,onFirstSetup){
@@ -912,6 +1124,7 @@ function upgrade(root=document){
     root.querySelectorAll('select').forEach(upgradeSelectCombobox);
     root.querySelectorAll('input[data-autocomplete-list]').forEach(upgradeInputAutocomplete);
     enhancePagination(root);
+    enhanceModals(root);
   }finally{
     enhancing=false;
   }
@@ -919,8 +1132,8 @@ function upgrade(root=document){
 
 function isInternalMutationNode(node){
   if(!node||node.nodeType!==1)return true;
-  if(node.matches?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW,.COMM_AVATAR_IMAGE'))return true;
-  if(node.closest?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW'))return true;
+  if(node.matches?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW,.COMM_AVATAR_IMAGE,.CV_TOAST_HOST,.CV_TOAST'))return true;
+  if(node.closest?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW,.CV_TOAST_HOST'))return true;
   return false;
 }
 
@@ -930,7 +1143,7 @@ function listen(){
   new MutationObserver(mutations=>{
     if(enhancing)return;
     const relevant=mutations.some(m=>{
-      if(m.target?.closest?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW'))return false;
+      if(m.target?.closest?.('.CV_COMBOBOX,.CV_PAGINATE_TOOLBAR,.CV_PAGINATE_FOOTER,.CV_PAGINATE_EMPTY_NODE,.CV_PAGINATE_EMPTY_ROW,.CV_TOAST_HOST'))return false;
       for(const n of m.addedNodes){
         if(!isInternalMutationNode(n))return true;
       }
@@ -943,6 +1156,6 @@ function listen(){
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',listen,{once:true});else listen();
-window.CityVetBarangays=Object.freeze({names,match,options,upgrade});
-window.CityVetUI=Object.freeze({upgrade,enhancePagination,scoreMatch});
+window.CityVetBarangays=Object.freeze({names,list:names,match,options,optionsHtml:options,upgrade});
+window.CityVetUI=Object.freeze({upgrade,enhancePagination,scoreMatch,setContainerSearch,setPageSearch,toast,confirm:confirmModal,skeleton});
 })();

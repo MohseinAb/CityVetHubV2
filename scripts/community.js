@@ -25,15 +25,15 @@
   };
   const roleBadge=r=>r==='admin'?`<span class="COMM_ROLE_BADGE is-admin">${fa('shield-halved')} Admin</span>`:r==='officer'?`<span class="COMM_ROLE_BADGE is-officer">${fa('user-shield')} Field Officer</span>`:'';
   const action=(a,data={})=>api.operate('community'+a,data);
-  const message=(text,success=false)=>{const n=container.querySelector('#communityNotice');if(n){n.textContent=text;n.className='COMM_NOTICE '+(success?'ok':'error');n.hidden=!text;}else if(text)alert(text);};
+  const message=(text,success=false)=>{const n=container.querySelector('#communityNotice');if(n){if(!success&&text){n.textContent=text;n.className='COMM_NOTICE error';n.hidden=false;}else{n.textContent='';n.hidden=true;}}if(text){if(window.CityVetUI?.toast)window.CityVetUI.toast(text,success?'success':'error');else if(n){n.textContent=text;n.className='COMM_NOTICE '+(success?'ok':'error');n.hidden=false;}}};
   const handlerErr=e=>api.readableError(e);
   function modal(title,content,onSubmit,submitText='Save changes'){
    document.querySelector('.COMM_MODAL')?.remove();
    const shade=document.createElement('div');shade.className='COMM_MODAL';shade.setAttribute('role','presentation');
    shade.innerHTML=`<div class="COMM_MODAL_DIALOG" role="dialog" aria-modal="true" aria-label="${H(title)}"><div class="COMM_MODAL_HEADER"><h3>${H(title)}</h3><button type="button" class="COMM_ICONBTN" data-close aria-label="Close">×</button></div><form class="COMM_FORM">${content}<p class="COMM_MODAL_ERROR" hidden role="alert"></p><div class="COMM_FORM_FOOT"><button type="button" class="COMM_BTN" data-close>Cancel</button><button type="submit" class="COMM_BTN primary">${H(submitText)}</button></div></form></div>`;
-   document.body.append(shade);shade.querySelector('[data-close]').focus();
+   document.body.append(shade);window.CityVetUI?.upgrade(shade);
    shade.addEventListener('click',e=>{if(e.target===shade||e.target.closest('[data-close]'))shade.remove();});
-   const key=e=>{if(e.key==='Escape'){shade.remove();document.removeEventListener('keydown',key);}};document.addEventListener('keydown',key);
+   const key=e=>{if(e.key==='Escape'&&!shade.querySelector('.CV_COMBOBOX.is-open')){shade.remove();document.removeEventListener('keydown',key);}};document.addEventListener('keydown',key);
    shade.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,submit=form.querySelector('[type="submit"]');submit.disabled=true;
      const err=form.querySelector('.COMM_MODAL_ERROR');err.hidden=true;
      try{await onSubmit(form);shade.remove();document.removeEventListener('keydown',key);}catch(x){err.hidden=false;err.textContent=handlerErr(x);}finally{submit.disabled=false;}});
@@ -169,7 +169,7 @@
    const scroller=document.querySelector('.DASHBOARD_CONTENT')||document.documentElement;
    const scrollTop=scroller.scrollTop;
    if(!silent&&!container.querySelector('.COMM_PAGE,.COMM_OFFICIAL_LIST,.COMM_LAYOUT')){
-     container.innerHTML='<div class="COMM_LOADING">'+fa('spinner fa-spin')+' Loading community…</div>';
+     container.innerHTML=window.CityVetUI?.skeleton('Loading community…',4)||('<div class="COMM_LOADING">'+fa('spinner fa-spin')+' Loading community…</div>');
    }
    try{await overviewLoad();if(rev!==revision)return;
      if(section==='notices'||viewMode==='officer-notices'){renderNotices();}
@@ -316,14 +316,14 @@
       if(kind==='newPost'){if(!canParticipate())return message('Verify your Pet Owner account first.');return submitPost();}
       if(kind==='newFeedPost'){if(!canParticipate())return message('Verify your Pet Owner account first.');return submitPost(true);}
       if(kind==='requestJoin'){await action('RequestJoin',{channelId:selected});return refresh(true);}
-      if(kind==='togglePrivacy'){const ch=overview.channels.find(x=>x.id===selected);const privacy=ch?.privacy==='private'?'public':'private';if(!confirm(`Change channel to ${privacy}? This changes who can read its discussions.`))return;
-        await action('SetPrivacy',{channelId:selected,privacy});return refresh(true);}
+      if(kind==='togglePrivacy'){const ch=overview.channels.find(x=>x.id===selected);const privacy=ch?.privacy==='private'?'public':'private';
+        return window.CityVetUI?.confirm({title:`Change channel to ${privacy}?`,description:`Switch #${ch?.name||'channel'} to ${privacy}? This changes who can read its discussions.`,confirmLabel:`Make ${privacy}`,onConfirm:async()=>{await action('SetPrivacy',{channelId:selected,privacy});await refresh(true);message(`Channel is now ${privacy}.`,true);}});}
       if(kind==='joinRequests')return showJoinRequests();
       if(kind==='showComments'){if(b.dataset.channelId)selected=b.dataset.channelId;return showComments(channelId);}
       if(kind==='votePost'){if(!canParticipate())return message('Verify your account first to vote.');await action('Vote',{targetType:'post',targetId:b.dataset.target,value:Number(b.dataset.value)});if(section==='feed'){return refresh(true);}await renderChannel(selected);hydrateImages();return hydrateAvatars();}
-      if(kind==='deleteChannel'){if(!confirm('Delete this channel and all of its discussions? This cannot be undone.'))return;await action('DeleteChannel',{channelId:channelId||selected});selected=null;section='feed';await refresh(true);if(typeof window.CityVetRefreshNotifications==='function')window.CityVetRefreshNotifications();return;}
-      if(kind==='deletePost'){if(!confirm('Remove this discussion and its images from Community?'))return;await action('DeletePost',{postId:channelId});if(typeof window.CityVetRefreshNotifications==='function')window.CityVetRefreshNotifications();if(section==='feed'){return refresh(true);}await renderChannel(selected);hydrateImages();return hydrateAvatars();}
-      if(kind==='deactivateAnnouncement'){if(!confirm('Deactivate this announcement?'))return;await action('DeactivateAnnouncement',{announcementId:channelId});return refresh(true);}
+      if(kind==='deleteChannel'){return window.CityVetUI?.confirm({title:'Delete community channel?',description:'Delete this channel and all of its discussions? This cannot be undone.',confirmLabel:'Delete channel',danger:true,onConfirm:async()=>{await action('DeleteChannel',{channelId:channelId||selected});selected=null;section='feed';await refresh(true);message('Channel deleted.',true);if(typeof window.CityVetRefreshNotifications==='function')window.CityVetRefreshNotifications();}});}
+      if(kind==='deletePost'){return window.CityVetUI?.confirm({title:'Remove discussion?',description:'Remove this discussion and its images from Community?',confirmLabel:'Remove discussion',danger:true,onConfirm:async()=>{await action('DeletePost',{postId:channelId});message('Discussion removed.',true);if(typeof window.CityVetRefreshNotifications==='function')window.CityVetRefreshNotifications();if(section==='feed'){return refresh(true);}await renderChannel(selected);hydrateImages();return hydrateAvatars();}});}
+      if(kind==='deactivateAnnouncement'){return window.CityVetUI?.confirm({title:'Deactivate official announcement?',description:'This announcement will no longer appear in active notices.',confirmLabel:'Deactivate',danger:true,onConfirm:async()=>{await action('DeactivateAnnouncement',{announcementId:channelId});message('Announcement deactivated.',true);return refresh(true);}});}
     }catch(x){message(handlerErr(x));}
   });
   let debounce;function search(value){if(!active||viewMode==='officer-notices')return;clearTimeout(debounce);searchQuery=String(value||'').trim();debounce=setTimeout(()=>{if(searchQuery.length>=2){section='search';refresh(true);}else if(section==='search'){section='feed';refresh(true);}},280);}

@@ -48,6 +48,8 @@
         owner: ['home','pets','medical','surveillance','community','adoptions','traceability','profile']
     };
     const role = current.role;
+    const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const escapeHtml = escHtml;
     const themeButton=document.getElementById('themeButton');
     function applyTheme(dark){
         document.body.classList.toggle('dark-theme',!!dark);
@@ -206,15 +208,43 @@
     document.querySelectorAll('#sideNav,#moduleGrid').forEach(parent=>parent.addEventListener('click',event=>{
         const control=event.target.closest('[data-module]');if (control) openModule(control.dataset.module);
     }));
-    document.getElementById('searchInput').addEventListener('input',event=>{
-        const term=event.target.value.toLowerCase().trim();
-        if (!document.getElementById('registryPanel').hidden && openRegistry) openRegistry.filter(term);
-        if (!document.getElementById('featurePanel').hidden) {
-            const mod=document.querySelector('#sideNav .is-active')?.dataset.module;
-            if(mod==='community'||(mod==='alerts'&&role==='officer'))communityHub?.search(term);
-            else if(['surveillance','reports','profile'].includes(mod))phase4Hub.search(term);
-            else featureHub.search(term);
+    const searchInputEl=document.getElementById('searchInput');
+    const searchPanelEl=searchInputEl?.closest('.SEARCH_PANEL');
+    const cmdMenu=document.createElement('div');
+    cmdMenu.className='CV_CMD_DROPDOWN';
+    cmdMenu.hidden=true;
+    searchPanelEl?.appendChild(cmdMenu);
+    function renderCmdMenu(raw=''){
+        const q=String(raw||'').trim().toLowerCase();
+        const matches=allowed.filter(k=>k!=='home'&&(!q||pageDefs[k].title.toLowerCase().includes(q)||String(pageDefs[k].description||'').toLowerCase().includes(q)));
+        if(!matches.length){cmdMenu.hidden=true;return;}
+        cmdMenu.innerHTML=`<div class="CV_CMD_HEADER">Quick jump to module</div>`+matches.map((k,i)=>`<button type="button" class="CV_CMD_ITEM ${i===0&&q?'is-active':''}" data-cmd-mod="${k}"><span class="CV_CMD_ICON"><i class="fa-solid ${pageDefs[k].icon}"></i></span><span class="CV_CMD_TEXT"><strong>${escapeHtml(pageDefs[k].title)}</strong><small>${escapeHtml(pageDefs[k].description||'')}</small></span></button>`).join('');
+        cmdMenu.hidden=false;
+    }
+    searchInputEl.addEventListener('focus',()=>renderCmdMenu(searchInputEl.value));
+    searchInputEl.addEventListener('blur',()=>setTimeout(()=>{cmdMenu.hidden=true;},150));
+    searchInputEl.addEventListener('keydown',e=>{
+        if(e.key==='Escape'){cmdMenu.hidden=true;searchInputEl.blur();}
+        else if(e.key==='Enter'){
+            const first=cmdMenu.querySelector('.CV_CMD_ITEM.is-active,.CV_CMD_ITEM');
+            if(first&&!cmdMenu.hidden&&searchInputEl.value.trim()){
+                e.preventDefault();
+                cmdMenu.hidden=true;
+                openModule(first.dataset.cmdMod);
+            }
         }
+    });
+    cmdMenu.addEventListener('mousedown',e=>{
+        const btn=e.target.closest('[data-cmd-mod]');
+        if(!btn)return;
+        e.preventDefault();
+        cmdMenu.hidden=true;
+        openModule(btn.dataset.cmdMod);
+    });
+    searchInputEl.addEventListener('input',event=>{
+        const term=event.target.value.toLowerCase().trim();
+        renderCmdMenu(term);
+        window.CityVetUI?.setPageSearch(term);
         grid.querySelectorAll('.MODULE_CARD').forEach(card=>{
             card.hidden = term !== '' && !card.textContent.toLowerCase().includes(term);
         });
@@ -306,7 +336,7 @@
     await syncUserBarangays();
     const seenOfficialAnnouncements=new Set();let announcementsLoaded=false;
     async function checkCommunityAnnouncements(){
-       try{const r=await api.operate('communityOfficialNotices');const items=(r.notices||[]).filter(x=>x.category==='announcement'&&x.isActive);
+       try{const r=await api.operate('communityOverview');const items=(r?.notices||[]).filter(x=>(!x.category||x.category==='announcement')&&x.isActive!==false);
          for(const n of items){
            const parsed=parseAnnouncementBrgy(n);
            if(!matchUserBarangay(parsed.barangay))continue;
@@ -366,7 +396,6 @@
     let notifLoading=false;
     let notifQueued=false;
     let lastLocalNotifAction={action:'',at:0};
-    const escHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const relTime=iso=>{
         if(!iso)return '';
         const t=new Date(iso).getTime();
@@ -1054,6 +1083,16 @@
     view.hidden = false;
 
     
+    let ownerCommOverviewPromise = null;
+    function fetchOwnerCommunityOverview() {
+        if (!ownerCommOverviewPromise) {
+            ownerCommOverviewPromise = api.operate('communityOverview').finally(() => {
+                setTimeout(() => { ownerCommOverviewPromise = null; }, 500);
+            });
+        }
+        return ownerCommOverviewPromise;
+    }
+
     if (role === 'owner') {
         openModule('home');
     } else {
@@ -1066,43 +1105,66 @@
         const container = document.getElementById('ownerCommunityDiscussions');
         if (!container) return;
         try {
-            const tableId = api.config.tables.communityPosts;
-            const response = await api.tablesDB.listRows({
-                databaseId: api.config.databaseId,
-                tableId,
-                // Removed orderDesc('$createdAt') to fix the index error
-                queries: [window.Appwrite.Query.limit(3)]
-            });
-            const posts = response.rows || [];
+            let posts = [];
+            try {
+                const ov = await fetchOwnerCommunityOverview();
+                const readable = (ov?.channels || []).filter(c => c.canRead).slice(0, 4);
+                const chResults = await Promise.allSettled(readable.map(c => api.operate('communityChannel', { channelId: c.id })));
+                for (let i = 0; i < chResults.length; i++) {
+                    if (chResults[i].status === 'fulfilled') {
+                        const chName = readable[i].name;
+                        const chId = readable[i].id;
+                        for (const p of (chResults[i].value?.posts || [])) {
+                            posts.push({ ...p, channelName: chName, channelId: chId });
+                        }
+                    }
+                }
+                posts.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+                posts = posts.slice(0, 3);
+            } catch {
+                const tableId = api.config.tables.communityPosts;
+                const response = await api.tablesDB.listRows({
+                    databaseId: api.config.databaseId,
+                    tableId,
+                    queries: [window.Appwrite.Query.limit(3)]
+                });
+                posts = (response.rows || []).reverse();
+            }
             if (!posts.length) {
                 container.className = 'EMPTY_STATE';
                 container.innerHTML = '<p>No community discussions yet.</p>';
                 return;
             }
             container.className = 'LIST_CONTENT';
-            container.replaceChildren(...posts.reverse().map(item => { // Reverse to show latest
+            container.replaceChildren(...posts.map(item => {
                 const row = document.createElement('div');
                 row.className = 'LIST_ITEM';
                 row.style.cursor = 'pointer';
-                row.addEventListener('click', () => document.querySelector('[data-module="community"]').click());
-                
+                row.addEventListener('click', () => {
+                    document.querySelector('[data-module="community"]')?.click();
+                    if ((item.channelId || item.id) && communityHub?.focusTarget) {
+                        setTimeout(() => communityHub.focusTarget({ channelId: item.channelId, postId: item.id || item.$id }), 120);
+                    }
+                });
+
                 const details = document.createElement('div');
                 details.className = 'ITEM_DETAILS';
-                
+
                 const h4 = document.createElement('h4');
                 h4.textContent = item.title || 'Community Post';
-                
+
                 const sub = document.createElement('p');
                 sub.className = 'SUB_TEXT';
                 const bodyText = item.body || '';
-                sub.textContent = bodyText.length > 55 ? bodyText.substring(0, 55) + '...' : (bodyText || 'Join the discussion');
-                
+                const prefix = item.channelName ? `#${item.channelName} · ` : '';
+                sub.textContent = prefix + (bodyText.length > 55 ? bodyText.substring(0, 55) + '…' : (bodyText || 'Join the discussion'));
+
                 details.append(h4, sub);
-                
+
                 const badge = document.createElement('span');
                 badge.className = 'LINK_PRIMARY';
                 badge.textContent = 'View →';
-                
+
                 row.append(details, badge);
                 return row;
             }));
@@ -1120,38 +1182,38 @@
             const response = await api.tablesDB.listRows({
                 databaseId: api.config.databaseId,
                 tableId,
-                // Removed orderDesc('$createdAt') to fix the index error
-                queries: [window.Appwrite.Query.limit(3)]
+                queries: [window.Appwrite.Query.limit(10)]
             });
-            const listings = response.rows || [];
+            const listings = (response.rows || []).filter(l => l.isActive !== false && l.status !== 'adopted').slice(-3).reverse();
             if (!listings.length) {
                 container.className = 'EMPTY_STATE';
                 container.innerHTML = '<p>No pets currently listed for adoption.</p>';
                 return;
             }
             container.className = 'LIST_CONTENT';
-            container.replaceChildren(...listings.reverse().map(item => { // Reverse to show latest
+            container.replaceChildren(...listings.map(item => {
                 const row = document.createElement('div');
                 row.className = 'LIST_ITEM';
                 row.style.cursor = 'pointer';
-                row.addEventListener('click', () => document.querySelector('[data-module="adoptions"]').click());
-                
+                row.addEventListener('click', () => document.querySelector('[data-module="adoptions"]')?.click());
+
                 const details = document.createElement('div');
                 details.className = 'ITEM_DETAILS';
-                
+
                 const h4 = document.createElement('h4');
                 h4.textContent = item.title || item.petName || 'Adoptable Pet';
-                
+
                 const sub = document.createElement('p');
                 sub.className = 'SUB_TEXT';
-                sub.textContent = item.description || 'Ready for adoption';
-                
+                const meta = [item.species, item.breed, item.barangay ? `Brgy. ${item.barangay}` : ''].filter(Boolean).join(' · ');
+                sub.textContent = meta || item.description || 'Ready for adoption';
+
                 details.append(h4, sub);
-                
+
                 const badge = document.createElement('span');
                 badge.className = 'LINK_PRIMARY';
                 badge.textContent = 'View →';
-                
+
                 row.append(details, badge);
                 return row;
             }));
@@ -1167,10 +1229,10 @@
         try {
             let announcements = [];
             try {
-                const res = await api.operate('communityOfficialNotices');
+                const res = await fetchOwnerCommunityOverview();
                 announcements = (res?.notices || []).filter(r => r.isActive !== false);
             } catch {
-                const tableId = api.config.tables.communityAnnouncements;
+                const tableId = api.config.tables.ownerAlerts;
                 const response = await api.tablesDB.listRows({
                     databaseId: api.config.databaseId,
                     tableId,
@@ -1180,17 +1242,29 @@
             }
             announcements = announcements.filter(r => matchUserBarangay(parseAnnouncementBrgy(r).barangay));
             if (!announcements.length) {
-                container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">No official announcements at this time.</p>';
+                container.innerHTML = '<p class="CV_OWNER_ANNOUNCE_EMPTY">No official announcements for your barangay at this time.</p>';
                 return;
             }
-            const item = announcements[0];
-            const parsed = parseAnnouncementBrgy(item);
-            container.innerHTML = `
-                <p style="color: #111827; font-weight: 600; margin: 0 0 0.25rem 0;">${escapeHtml(item.title || 'Official Notice')}${parsed.barangay ? ` <span style="font-size:0.78rem;font-weight:500;color:#0284c7;">· Brgy. ${escapeHtml(parsed.barangay)}</span>` : ''}</p>
-                <p style="color: #6B7280; font-size: 0.95rem; margin: 0;">${escapeHtml(parsed.body || '')}</p>
-            `;
+            const topItems = announcements.slice(0, 1);
+            container.innerHTML = `<div class="CV_OWNER_ANNOUNCE_LIST">` + topItems.map(item => {
+                const parsed = parseAnnouncementBrgy(item);
+                const isOutbreak = item.category === 'outbreak' || item.isOutbreak;
+                const dateText = item.date || item.issuedAt || item.$createdAt;
+                const fmtDate = dateText ? new Date(dateText).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                return `<div class="CV_OWNER_ANNOUNCE_ITEM ${isOutbreak ? 'is-outbreak' : ''}">
+                    <div class="CV_OWNER_ANNOUNCE_TOP">
+                        <strong>${escapeHtml(item.title || 'Official CVO Notice')}</strong>
+                        <div class="CV_OWNER_ANNOUNCE_TAGS">
+                            ${parsed.barangay ? `<span class="CV_OWNER_ANNOUNCE_TAG"><i class="fa-solid fa-location-dot"></i> Brgy. ${escapeHtml(parsed.barangay)}</span>` : '<span class="CV_OWNER_ANNOUNCE_TAG">Citywide</span>'}
+                            ${fmtDate ? `<span class="CV_OWNER_ANNOUNCE_DATE">${escapeHtml(fmtDate)}</span>` : ''}
+                        </div>
+                    </div>
+                    <p>${escapeHtml(parsed.body || item.message || '')}</p>
+                </div>`;
+            }).join('') + `</div>`;
         } catch (e) {
-            container.innerHTML = '<p style="color: #6B7280; font-size: 0.95rem; margin: 0;">Unable to load announcements.</p>';
+            console.warn('Owner announcements failed:', e);
+            container.innerHTML = '<p class="CV_OWNER_ANNOUNCE_EMPTY">Unable to load official announcements right now.</p>';
         }
     }
 

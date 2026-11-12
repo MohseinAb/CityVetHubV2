@@ -413,16 +413,29 @@ export default async ({req,res,log,error})=>{
       case 'updateInventoryPet':{
         verify(403,owner);
         const pet=await row(T.inventory,requireText(data.petProfileId,36));verify(403,pet.ownerId===user.$id,'Not your pet');
-        verify(409,['draft','rejected'].includes(pet.verificationStatus),'Identity fields of pending/verified pets cannot be changed; use Update details for public information.');
         const petName=requireText(data.petName,100),species=accept(data.species,['Dog','Cat']),breed=requireText(data.breed,100),sex=accept(data.sex,['Male','Female']),barangay=cityBarangay(data.barangay);
         const ageYears=Number(data.ageYears);verify(400,Number.isInteger(ageYears)&&ageYears>=0&&ageYears<=40,'Invalid age');
-        const photoFileId=optText(data.photoFileId,36);if(photoFileId!==pet.photoFileId)await assertUploadedPhoto(photoFileId,user);
+        const photoFileId=optText(data.photoFileId,36);if(photoFileId!==pet.photoFileId)await assertUploadedPhoto(photoFileId,user,true,pet.verificationStatus==='verified');
         if(pet.photoFileId&&pet.photoFileId!==photoFileId&&pet.sharePublicPhoto)await setFilePublic(pet.photoFileId,false);
         const ancestry=await lineageFields(data,user.$id,pet.$id,species,pet);
         const fields={petName,species,breed,sex,ageYears,barangay,photoFileId,...petSafeDetails(data),...ancestry};
         const saved=await update(T.inventory,pet.$id,fields);
         if(saved.photoFileId)await setFilePublic(saved.photoFileId,!!saved.sharePublicPhoto);
         await syncPassport(saved,user.name||user.email);
+        if(saved.latestRequestId){
+          await update(T.req,saved.latestRequestId,{petName,species,breed,sex,ageYears,barangay}).catch(e=>{if(e.status!==404)throw e;});
+        }
+        const officialMatches=await api('GET',path(T.pets)+'?limit=20&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'equal',attribute:'petProfileId',values:[saved.$id]}))).catch(()=>({rows:[]}));
+        const officialIds=new Set((officialMatches.rows||[]).map(r=>r.$id));
+        if(saved.latestRequestId)officialIds.add(saved.latestRequestId);
+        const officialPatch={petName,species,breed,sex,ageYears,barangay,photoFileId:saved.photoFileId||'',homeAddress:saved.homeAddress||'',emergencyContact:saved.emergencyContact||'',lostFoundMessage:saved.lostFoundMessage||'',sharePublicAddress:!!saved.sharePublicAddress,shareContact:!!saved.shareContact};
+        for(const oid of officialIds){
+          await update(T.pets,oid,officialPatch).catch(e=>{if(e.status!==404)throw e;});
+        }
+        const activeListings=await api('GET',path(T.listings)+'?limit=20&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'equal',attribute:'petProfileId',values:[saved.$id]}))).catch(()=>({rows:[]}));
+        for(const l of activeListings.rows||[]){
+          if(l.status!=='adopted')await update(T.listings,l.$id,{species,breed,color:saved.color||'',sex,ageYears,barangay}).catch(()=>{});
+        }
         result=saved;break;
       }
       case 'updatePetDetails':{

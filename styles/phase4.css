@@ -99,7 +99,7 @@
 .P46_BRNG_HEAD>strong{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .P46_BRNG_HEAD>span:not(.P46_LEVEL){font-size:10px;color:var(--sub)}
 .P46_BRNG_HEAD i{color:var(--sub);font-size:10px}
-.P46_BRNG_DETAILS{padding:3px 12px 12px;border-left:3px solid #3b82f6;background:var(--surface-2);border-radius:0 9px 9px 0}
+.P46_BRNG_DETAILS{padding:10px 12px;background:var(--surface-2);border-radius:9px}
 .P46_BRNG_DETAILS[hidden]{display:none}
 .P46_INCIDENT_ROW{padding:12px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .P46_INCIDENT_ROW>b{font-size:12px;flex:1}

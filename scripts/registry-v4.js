@@ -23,7 +23,7 @@ function mount({api,current}){
  const listedBadge=()=>'<span class="CV412_ALREADY_LISTED"><i class="fa-solid fa-check-circle"></i> Listed for adoption</span>';
  const list=async key=>{const r=await api.tablesDB.listRows({databaseId:cfg.databaseId,tableId:cfg.tables[key],queries:[Q.orderDesc('$createdAt'),Q.limit(100)]});return r.rows||[];};
  const show=(title,sub,toolbar,body)=>{box.innerHTML=`<div class="REGISTRY_TOP"><div><span class="REGISTRY_KICKER"><i class="fa-solid fa-paw"></i> PET MANAGEMENT</span><h2>${H(title)}</h2><p>${H(sub)}</p></div><div class="REGISTRY_ACTIONS">${toolbar}</div></div><div id="p46Notice" class="P4_NOTICE" role="status" hidden></div>${body}`;window.CityVetUI?.upgrade(box);};
- function notice(text,err=false){const node=box.querySelector('#p46Notice');if(node){node.hidden=false;node.className='P4_NOTICE '+(err?'P4_NOTICE_ERROR':'P4_NOTICE_SUCCESS');node.textContent=text;}}
+ function notice(text,err=false){const node=box.querySelector('#p46Notice');if(node){if(err&&text){node.hidden=false;node.className='P4_NOTICE P4_NOTICE_ERROR';node.textContent=text;}else{node.hidden=true;node.textContent='';}}if(text){if(window.CityVetUI?.toast)window.CityVetUI.toast(text,err?'error':'success');else if(node){node.hidden=false;node.className='P4_NOTICE '+(err?'P4_NOTICE_ERROR':'P4_NOTICE_SUCCESS');node.textContent=text;}}}
  function modal(title,fields,onSave,label='Save changes',successMessage='Saved successfully.'){
   const overlay=document.createElement('div');overlay.className='CV_MODAL P46_MODAL';overlay.innerHTML=`<div class="CV_MODAL_CARD P46_DIALOG" role="dialog" aria-modal="true" aria-label="${H(title)}"><div class="CV_MODAL_HEAD"><h3>${H(title)}</h3><button type="button" data-close aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button></div><form class="P4_PET_FORM">${fields}<div class="P4_FORM_ERRORS" role="alert" hidden></div><div class="P4_FORM_FOOT"><button type="button" class="CV_SOFT CV_BUTTON" data-close>Cancel</button><button type="submit" class="PRIMARY_ACTION">${H(label)}</button></div></form></div>`;
   const close=()=>overlay.remove();overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))close();});
@@ -47,7 +47,7 @@ function mount({api,current}){
   const dialog=modal(pet?`Edit ${pet.petName}`:'Add a pet',fld('Pet name','petName',pet?.petName,'text','required maxlength="100"')+  
   select('Animal type','species',['Dog','Cat'],pet?.species||'Dog')+`<label>Breed <select name="breed" required><option value="">Loading available breeds…</option></select></label>`+select('Coat color','color',window.CityVetBreedCatalog?.colors||['Black','White','Brown','Gray','Other / Unknown'],pet?.color||'Other / Unknown')+  
   select('Sex','sex',['Male','Female'],pet?.sex||'Male')+fld('Age in years','ageYears',pet?.ageYears??0,'number','min="0" max="40" required')+  
-  `<label>Barangay<select name="barangay" required>${window.CityVetBarangays?.optionsHtml(pet?.barangay||'')||`<option value="${H(pet?.barangay||'')}">${H(pet?.barangay||'Select barangay')}</option>`}</select></label>`+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
+  `<label>Barangay<select name="barangay" required>${window.CityVetBarangays?.options(pet?.barangay||'')||`<option value="${H(pet?.barangay||'')}">${H(pet?.barangay||'Select barangay')}</option>`}</select></label>`+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
   fld('Emergency contact (private)','emergencyContact',pet?.emergencyContact,'tel','maxlength="60"')+  
   select('Vital status','vitalStatus',['Alive', 'Deceased'],pet?.vitalStatus||'Alive')+
   ancestrySelector(pet,pet?.species||'Dog')+
@@ -55,7 +55,7 @@ function mount({api,current}){
   `<label class="P4_FORM_WIDE">Pet photo (JPG/PNG/WEBP, 5 MB)<input name="picture" type="file" accept="image/jpeg,image/png,image/webp"></label>`+  
   checkbox('Show my name publicly on QR profile','shareOwnerName',pet?.shareOwnerName)+checkbox('Share emergency contact publicly','shareContact',pet?.shareContact)+  
   checkbox('Share exact home address publicly (not recommended)','sharePublicAddress',pet?.sharePublicAddress)+checkbox('Show pet photo publicly','sharePublicPhoto',pet?.sharePublicPhoto)+  
-  `<p class="CV_HINT P4_FORM_WIDE">The QR code is created when the pet is saved. A QR profile is NOT a CVO verification. Only details you choose to share are public.</p>`,async form=>{  
+  `<p class="CV_HINT P4_FORM_WIDE">${pet?.verificationStatus==='verified'?'Changes update your pet profile, CVO verified registry entry, and QR passport while keeping its official CVO ID unchanged.':'The QR code is created when the pet is saved. A QR profile is NOT a CVO verification. Only details you choose to share are public.'}</p>`,async form=>{  
   const d=Object.fromEntries(new FormData(form));
   if(d.ancestryParentId&&d.ancestryParent2Id&&d.ancestryParentId===d.ancestryParent2Id)throw Error('Select two different parent pets.');
   const file=form.querySelector('[name=picture]').files[0];const photoFileId=file?await upload(file):(pet?.photoFileId||'');  
@@ -134,7 +134,7 @@ function mount({api,current}){
   const p2Id=parent2IdOf(pet),p2Name=pets.find(p=>p.$id===p2Id)?.petName||parent2NameOf(pet)||'Unknown / Not listed';
   return `<div class="P46_PET_SUMMARY P4_FORM_WIDE"><div class="P46_PET_DETAIL_IMAGE">${img(pet.photoFileId)}</div><div><h3>${H(pet.petName)}</h3>${status(pet.verificationStatus)}<p>${H(pet.species)} • ${H(pet.breed)} • ${H(pet.sex)} • ${H(pet.ageYears)} year(s)</p><p><i class="fa-solid fa-location-dot"></i> ${H(pet.barangay)}</p><p>${H(pet.profileDescription||'No description yet.')}</p></div></div>`+  
   `<div class="P46_DETAIL_FIELDS P4_FORM_WIDE"><div><span>Status</span><strong>${H(pet.vitalStatus||'Alive')}</strong></div><div><span>Ancestry 1</span><strong>${H(p1Name)}</strong></div><div><span>Ancestry 2</span><strong>${H(p2Name)}</strong></div><div><span>Verification status</span><strong>${H(statuses[pet.verificationStatus]||'Draft')}</strong></div><div><span>Official CVO registry ID</span><strong>${H(pet.officialRegistryId||'Not assigned')}</strong></div><div><span>Home address · Private</span><strong>${H(pet.homeAddress||'Not provided')}</strong></div><div><span>Emergency contact · Private</span><strong>${H(pet.emergencyContact||'Not provided')}</strong></div><div class="P46_WIDE"><span>Lost & found</span><strong>${H(pet.lostFoundMessage||'If found, please contact CityVetHub.')}</strong></div></div>`+  
-  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Update details','details',pet.$id,'fa-pen-to-square')}${['draft','rejected'].includes(pet.verificationStatus)?action('Edit identity','edit',pet.$id,'fa-paw')+action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+  
+  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Edit identity','edit',pet.$id,'fa-paw')}${action('Update details','details',pet.$id,'fa-pen-to-square')}${['draft','rejected'].includes(pet.verificationStatus)?action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+  
   `<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><div class="P4_SECTION_HEADING"><h3>Health and vaccination documents</h3>${action('Add Medical Record','addHealth',pet.$id,'fa-plus',true)}</div><p>Owner-uploaded images are not official veterinary certification. Each shared document is visible to anyone with the QR link.</p>${rows||'<p class="CV_HINT">No personal health documents yet.</p>'}</div>`+  
   (clinical.length?`<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><h3>Veterinary records</h3>${clinical.map(c=>{const exp=splitExpiry(c.description,c.expiryDate).expiryDate;return `<p><b>${H(c.recordType)}:</b> ${H(c.medicineType)} · ${H(date(c.dateAdministered))}${exp?` · Expires ${H(date(exp))}`:''}</p>`;}).join('')}</div>`:'');
  }
@@ -215,19 +215,16 @@ function mount({api,current}){
   selectDecision.addEventListener('change',()=>{idField.disabled=selectDecision.value==='rejected';idField.required=!idField.disabled;});
  }
  async function reload(silent=false){
-  const prevNoticeNode=box.querySelector('#p46Notice');
-  const prevNotice=prevNoticeNode&&!prevNoticeNode.hidden&&!prevNoticeNode.classList.contains('P4_NOTICE_ERROR')?{text:prevNoticeNode.textContent,err:false}:null;
   const scroller=document.querySelector('.DASHBOARD_CONTENT')||document.documentElement;
   const scrollTop=scroller.scrollTop;
   if(!silent&&!box.children.length){
-   show('Pet Registry','Loading your records…','','<div class="CV_LOADING">Loading…</div>');
+   box.innerHTML=window.CityVetUI?.skeleton('Loading Pet Registry…',4)||'<div class="CV_LOADING">Loading…</div>';
   }
   try{if(owner){
    const [a,b,c,d,e,f]=await Promise.all([list('petProfiles'),list('petRequests'),list('pets'),list('petHealthUploads'),list('medical').catch(()=>[]),list('adoptionListings')]);
    pets=a.filter(p=>p.ownerId===current.user.$id);requests=b.filter(r=>r.ownerId===current.user.$id);approved=c.filter(p=>p.ownerId===current.user.$id);evidence=d.filter(x=>x.ownerId===current.user.$id);clinician=e;existingListings=f.filter(l=>l.postedById===current.user.$id);ownerPage();
    syncOpenDetailsModal();
   }else{const [a,b,c,d,staff]=await Promise.all([list('petRequests').catch(()=>[]),list('pets'),admin?list('petProfiles').catch(()=>[]):Promise.resolve([]),admin?list('userProfiles').catch(()=>[]):Promise.resolve([]),api.operate('getStaffPetDirectory').catch(()=>({pets:[]}))]);requests=a;approved=b;staffInventory=c;staffOwners=d;staffDirectory=staff.pets||[];staffPage();}
-  if(prevNotice&&silent)notice(prevNotice.text,prevNotice.err);
   scroller.scrollTop=scrollTop;
   }
   catch(error){if(!silent||!box.children.length)show('Pet Registry','Could not load records.','','<div class="CV_ERROR">'+H(api.readableError(error))+'</div>');}
@@ -243,8 +240,8 @@ function mount({api,current}){
    if(cmd==='edit'&&owner&&pet)return petForm(pet);
    if(cmd==='details'&&owner&&pet)return detailsForm(pet);
    if(cmd==='addHealth'&&owner&&pet)return healthForm(pet);
-   if(cmd==='removeHealth'&&owner){if(!confirm('Delete this uploaded record?'))return;await api.operate('deletePetHealthUpload',{recordId:id});await reload(true);notice('Health document removed.');}
-   if(cmd==='verify'&&owner&&pet){if(!confirm(`Submit ${pet.petName} for CVO verification? Your QR already exists.`))return;button.disabled=true;await api.operate('requestPetVerification',{petProfileId:pet.$id});await reload(true);notice('Verification request sent to CVO.');}
+   if(cmd==='removeHealth'&&owner){return window.CityVetUI?.confirm({title:'Delete uploaded record?',description:'Remove this personal health document from your pet profile?',confirmLabel:'Delete document',danger:true,onConfirm:async()=>{await api.operate('deletePetHealthUpload',{recordId:id});await reload(true);notice('Health document removed.');}});}
+   if(cmd==='verify'&&owner&&pet){return window.CityVetUI?.confirm({title:`Submit ${pet.petName} for CVO verification?`,description:'Your personal QR passport already works. Submitting requests official CVO verification.',confirmLabel:'Submit request',onConfirm:async()=>{await api.operate('requestPetVerification',{petProfileId:pet.$id});await reload(true);notice('Verification request sent to CVO.');}});}
    if(cmd==='review'&&admin)return review(id);
    if(cmd==='assignId'&&admin)return assignLegacyId(id);
    if(cmd==='staffQr'){const url=new URL('./passport.html',document.baseURI);url.searchParams.set('pet',id);window.open(url.href,'_blank','noopener');}
@@ -256,15 +253,15 @@ function mount({api,current}){
   event.preventDefault();event.stopPropagation();
   const cmd=button.dataset.p46,id=button.dataset.id,pet=pets.find(p=>p.$id===id);
   try{
-   if(cmd==='removeHealth'&&owner){if(!confirm('Remove this medical document?'))return;await api.operate('deletePetHealthUpload',{recordId:id});await reload(true);notice('Document removed.');return;}
+   if(cmd==='removeHealth'&&owner){return window.CityVetUI?.confirm({title:'Remove medical document?',description:'Remove this uploaded document from your pet profile?',confirmLabel:'Remove document',danger:true,onConfirm:async()=>{await api.operate('deletePetHealthUpload',{recordId:id});await reload(true);notice('Document removed.');}});}
    if(!pet||!owner)return;
    if(cmd==='qr')return openQRCode(pet);
    if(cmd==='listAdoption')return listForAdoption(pet);
    if(cmd==='details')return detailsForm(pet);
    if(cmd==='edit')return petForm(pet);
    if(cmd==='addHealth')return healthForm(pet);
-   if(cmd==='verify'){if(!confirm(`Send ${pet.petName} for verification?`))return;await api.operate('requestPetVerification',{petProfileId:pet.$id});await reload(true);notice('Verification request submitted.');return;}
-   if(cmd==='deletePet'){if(!confirm(`Permanently delete ${pet.petName}?`))return;document.querySelectorAll('.P46_DETAILS_MODAL').forEach(m=>m.remove());await api.operate('deleteInventoryPet',{petProfileId:pet.$id});await reload(true);notice('Pet removed from inventory.');}
+   if(cmd==='verify'){return window.CityVetUI?.confirm({title:`Send ${pet.petName} for verification?`,description:'Submit this pet profile to CVO for official registry verification?',confirmLabel:'Send request',onConfirm:async()=>{await api.operate('requestPetVerification',{petProfileId:pet.$id});await reload(true);notice('Verification request submitted.');}});}
+   if(cmd==='deletePet'){return window.CityVetUI?.confirm({title:`Permanently delete ${pet.petName}?`,description:'This permanently deletes this draft/rejected pet profile from your inventory.',confirmLabel:'Delete pet',danger:true,onConfirm:async()=>{document.querySelectorAll('.P46_DETAILS_MODAL').forEach(m=>m.remove());await api.operate('deleteInventoryPet',{petProfileId:pet.$id});await reload(true);notice('Pet removed from inventory.');}});}
   }catch(err){notice(api.readableError(err),true);}
  });
  box.addEventListener('keydown',e=>{const card=e.target.closest('.P46_CLICK_CARD');if(card&&(e.key==='Enter'||e.key===' ')&&!e.target.closest('button')){e.preventDefault();card.click();}});
