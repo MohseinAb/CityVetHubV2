@@ -210,6 +210,108 @@ function mount({api,current,container}){
  }
  async function surveillance(){
   const staff=admin||officer;
+  const normalizedName=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\b(brgy|barangay)\b/g,'').replace(/[^a-z0-9]/g,'').trim();
+  const geoFeatureName=f=>{const p=f?.properties||{};return p.name||p.barangay||p.Barangay||p.ADM4_EN||p.NAME_4||p.BRGY_NAME||p.Brgy_Name||p.Barangay_Name||'';};
+  function pointInRing(lng,lat,ring){
+    if(!Array.isArray(ring)||ring.length<3)return false;
+    let inside=false;
+    for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+      const xi=Number(ring[i][0]),yi=Number(ring[i][1]),xj=Number(ring[j][0]),yj=Number(ring[j][1]);
+      if(((yi>lat)!==(yj>lat))&&(lng<((xj-xi)*(lat-yi))/((yj-yi)||1e-12)+xi))inside=!inside;
+    }
+    return inside;
+  }
+  function pointInPolyCoords(lng,lat,rings){
+    if(!Array.isArray(rings)||!rings.length||!pointInRing(lng,lat,rings[0]))return false;
+    for(let i=1;i<rings.length;i++)if(pointInRing(lng,lat,rings[i]))return false;
+    return true;
+  }
+  function findBarangayInGeo(lat,lng,fc){
+    const features=fc?.features;
+    if(!Array.isArray(features)||!Number.isFinite(lat)||!Number.isFinite(lng))return '';
+    for(const f of features){
+      const g=f?.geometry;if(!g)continue;
+      const hit=g.type==='Polygon'?pointInPolyCoords(lng,lat,g.coordinates):g.type==='MultiPolygon'&&Array.isArray(g.coordinates)&&g.coordinates.some(poly=>pointInPolyCoords(lng,lat,poly));
+      if(hit){const raw=geoFeatureName(f);return window.CityVetBarangays?.match(raw)||raw;}
+    }
+    return '';
+  }
+  async function ensureBoundaryGeo(extraNames){
+    if(survState.cachedGeo?.features?.length)return survState.cachedGeo;
+    if(!survState.geoPromise){
+      survState.geoPromise=(async()=>{
+        try{
+          const r=await fetch('./assets/iligan-barangays.geojson');
+          if(r.ok){
+            const j=await r.json();
+            const keep=(j?.features||[]).filter(f=>['Polygon','MultiPolygon'].includes(f.geometry?.type)&&geoFeatureName(f));
+            if(keep.length){survState.cachedGeo={type:'FeatureCollection',features:keep};survState.cachedGeoSource='local dataset';return survState.cachedGeo;}
+          }
+        }catch{}
+        try{
+          const env=encodeURIComponent(JSON.stringify({xmin:124.10,ymin:8.05,xmax:124.38,ymax:8.35,spatialReference:{wkid:4326}}));
+          const url=`https://services7.arcgis.com/poQdgvLD6DHnbpsT/arcgis/rest/services/Philippine_Administrative_Boundaries/FeatureServer/3/query?where=1%3D1&geometry=${env}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&outSR=4326&returnGeometry=true&f=geojson&resultRecordCount=250`;
+          const ctrl=new AbortController(),kill=setTimeout(()=>ctrl.abort(),9000);
+          try{
+            const r=await fetch(url,{signal:ctrl.signal});if(!r.ok)throw Error('ArcGIS HTTP '+r.status);
+            const json=await r.json();
+            const nameSet=extraNames instanceof Set?extraNames:new Set();
+            const relevant=(json.features||[]).filter(f=>['Polygon','MultiPolygon'].includes(f.geometry?.type)&&geoFeatureName(f)&&(/iligan/i.test(JSON.stringify(f.properties||{}))||nameSet.has(normalizedName(geoFeatureName(f)))||Boolean(window.CityVetBarangays?.match(geoFeatureName(f)))));
+            if(relevant.length){survState.cachedGeo={type:'FeatureCollection',features:relevant};survState.cachedGeoSource='remote boundaries';return survState.cachedGeo;}
+          }finally{clearTimeout(kill);}
+        }catch{}
+        return null;
+      })().finally(()=>{survState.geoPromise=null;});
+    }
+    return survState.geoPromise;
+  }
+  async function resolveBarangayFromCoords(lat,lng,extraNames){
+    if(!Number.isFinite(lat)||!Number.isFinite(lng))return '';
+    const fc=await ensureBoundaryGeo(extraNames);
+    const geoMatch=findBarangayInGeo(lat,lng,fc);
+    if(geoMatch)return geoMatch;
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=14`,{signal:AbortSignal.timeout(5000)});
+      if(!r.ok)return '';
+      const x=await r.json();
+      const suggested=x.address?.suburb||x.address?.village||x.address?.neighbourhood||x.address?.quarter||x.address?.city_district||'';
+      return window.CityVetBarangays?.match(suggested)||'';
+    }catch{return '';}
+  }
+  function setFormBarangay(dialog,value){
+    const field=dialog?.querySelector('[name="barangay"]');
+    if(!field||!value)return;
+    if(field.tagName==='SELECT'){
+      const hit=[...field.options].find(o=>o.value===value||normalizedName(o.value)===normalizedName(value));
+      if(hit){field.value=hit.value;field.dispatchEvent(new Event('change',{bubbles:true}));}
+    }else{
+      field.value=value;
+      field.dispatchEvent(new Event('input',{bubbles:true}));
+      field.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+  }
+  function bindCoordinateBarangaySync(dialog,seed={},extraNames){
+    if(!dialog)return;
+    let manualOverride=Boolean(seed.barangay),syncing=false,seq=0,timer=null;
+    const isBarangayTarget=t=>Boolean(t&&(t.name==='barangay'||t.closest?.('.CV_COMBOBOX')?.querySelector('[name="barangay"]')));
+    dialog.addEventListener('input',e=>{if(!syncing&&isBarangayTarget(e.target))manualOverride=true;});
+    dialog.addEventListener('change',e=>{if(!syncing&&isBarangayTarget(e.target))manualOverride=true;});
+    async function runLookup(){
+      if(!dialog.isConnected||manualOverride)return;
+      const lat=Number(dialog.querySelector('[name="latitude"]')?.value);
+      const lng=Number(dialog.querySelector('[name="longitude"]')?.value);
+      if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
+      const id=++seq;
+      const matched=await resolveBarangayFromCoords(lat,lng,extraNames);
+      await Promise.resolve();
+      if(!dialog.isConnected||id!==seq||manualOverride||!matched)return;
+      syncing=true;try{setFormBarangay(dialog,matched);}finally{syncing=false;}
+    }
+    const onCoordEdit=()=>{manualOverride=false;clearTimeout(timer);timer=setTimeout(runLookup,350);};
+    dialog.querySelector('[name="latitude"]')?.addEventListener('input',onCoordEdit);
+    dialog.querySelector('[name="longitude"]')?.addEventListener('input',onCoordEdit);
+    if(!seed.barangay)runLookup();
+  }
   if(owner){
     const ownerProfile=await api.tablesDB.getRow({databaseId:config.databaseId,tableId:config.tables.userProfiles,rowId:current.user.$id}).catch(e=>e.code===404?null:Promise.reject(e));
     const ownerVerified=ownerProfile?.accountVerificationStatus==='verified';
@@ -222,7 +324,7 @@ function mount({api,current,container}){
       if(!available.length)return notice('Incident reporting is not available until the CVO creates an incident category.',true);
       const fields=`<label>Incident category<select required name="diseaseType"><option value="" disabled selected>Choose a category</option>${available.map(t=>`<option>${E(t)}</option>`).join('')}</select></label><label>Barangay<input required name="barangay" maxlength="100" value="${E(seed.barangay||'')}"></label><label>Latitude<input name="latitude" required type="number" step="any" value="${E(seed.latitude??'8.228')}"></label><label>Longitude<input name="longitude" required type="number" step="any" value="${E(seed.longitude??'124.245')}"></label><label class="P4_FORM_WIDE">Incident details<textarea name="description" maxlength="1000" rows="4" placeholder="Describe what you observed (animal type, symptoms, etc.)"></textarea></label><label class="P4_FORM_WIDE">Photo evidence (optional) <input type="file" name="reportImage" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG or WEBP up to 5 MB. Private to CVO staff and the reporting owner.</small></label>`;
       const d=popupForm('Report a suspected incident',fields,async f=>{const payload=Object.fromEntries(new FormData(f));payload.photoFileId=await uploadIncidentEvidence(f);delete payload.reportImage;await api.operate('submitDisease',payload);});
-      if(d&&seed.latitude!=null){fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${seed.latitude}&lon=${seed.longitude}&zoom=14`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(x=>{if(d.isConnected){const input=d.querySelector('[name=barangay]');const suggested=x.address?.suburb||x.address?.village||x.address?.neighbourhood||'';const matched=window.CityVetBarangays?.match(suggested)||'';if(input&&!input.value&&matched)input.value=matched;}}).catch(()=>{});}
+      bindCoordinateBarangaySync(d,seed);
     }
     html(head('INCIDENT REPORTING','Report an Incident','Send a suspected animal-health incident to the CVO. Reports are confidential and do not appear on a public case map.',ownerVerified?btn('reportDisease','Report incident','fa-plus'):btn('goVerification','Verify account first','fa-shield-halved'))+
       `<div class="P47_OWNER_REPORT"><div class="P4_SIDE_CARD"><div class="P47_OWNER_REPORT_ICON"><i class="fa-solid fa-clipboard-list"></i></div><h3>Help protect animals in your barangay</h3><p>Share what you observed, where it happened, and any relevant details. The CVO will review submitted information before making public announcements.</p><p><strong>Privacy:</strong> Other people's incident submissions are not shown here.</p>${ownerVerified?'<div class="CV411_VERIFIED_NOTICE"><i class="fa-solid fa-circle-check"></i> Verified account — incident reporting enabled</div>':'<div class="CV411_LOCKED_NOTICE"><i class="fa-solid fa-lock"></i> Incident reporting is for verified Pet Owners only. Request verification in My Profile.</div>'}</div><div class="P4_MAP_CARD"><div class="P4_MAP_HEAD"><div><h3>Choose a report location</h3><p>Tap the map to prefill the incident coordinates</p></div></div><div class="P4_MAP" id="p4Map"></div><div class="P4_MAP_FOOT">Choose a location to start a new report. The map does not display other users' reports.</div></div></div>`);
@@ -237,18 +339,23 @@ function mount({api,current,container}){
   const reports=backlog.records;
   const selectedCategories=categories.filter(c=>c.isActive).map(c=>c.name).sort();
   const reporterOptions=['','owner','officer','admin','unknown'];
-  const roles=reports.filter(r=>r.status!=='archived').map(r=>({...r,reporterRole:r.reporterRole||'unknown'}));
-  const archivedRoles=reports.filter(r=>r.status==='archived').map(r=>({...r,reporterRole:r.reporterRole||'unknown'}));
+  const statusLabel=s=>s==='confirmed'?'Confirmed':s==='dismissed'?'Dismissed':s==='archived'?'Archived':'Unverified';
+  const allNonArchived=reports.filter(r=>r.status!=='archived').map(r=>({...r,reporterRole:r.reporterRole||'unknown',status:r.status||'pending'}));
+  const roles=allNonArchived.filter(r=>r.status!=='dismissed');
+  const dismissedRoles=allNonArchived.filter(r=>r.status==='dismissed');
+  const archivedRoles=reports.filter(r=>r.status==='archived').map(r=>({...r,reporterRole:r.reporterRole||'unknown',status:'archived'}));
   if(staff){
-    const unknownIds=[...new Set([...roles,...archivedRoles].filter(r=>r.reporterRole==='unknown'&&r.reportedById).map(r=>r.reportedById))].slice(0,40);
-    if(unknownIds.length)try{const x=await api.operate('resolveReporterRoles',{userIds:unknownIds});for(const r of [...roles,...archivedRoles])if(r.reporterRole==='unknown'&&x?.roles?.[r.reportedById])r.reporterRole=x.roles[r.reportedById];}catch{}
+    const unknownIds=[...new Set([...allNonArchived,...archivedRoles].filter(r=>r.reporterRole==='unknown'&&r.reportedById).map(r=>r.reportedById))].slice(0,40);
+    if(unknownIds.length)try{const x=await api.operate('resolveReporterRoles',{userIds:unknownIds});for(const r of [...allNonArchived,...archivedRoles])if(r.reporterRole==='unknown'&&x?.roles?.[r.reportedById])r.reporterRole=x.roles[r.reportedById];}catch{}
   }
-  const normalizedName=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\b(brgy|barangay)\b/g,'').replace(/[^a-z0-9]/g,'').trim();
   const groups=new Map();
   for(const report of roles){const name=report.barangay||'Unknown barangay',k=normalizedName(name);if(!groups.has(k))groups.set(k,{name,reports:[],key:k});groups.get(k).reports.push(report);}
   const sortedGroups=[...groups.values()].sort((a,b)=>b.reports.length-a.reports.length||a.name.localeCompare(b.name));
+  const allActiveMap=new Map();for(const r of allNonArchived){const name=r.barangay||'Unknown barangay',k=normalizedName(name);if(!allActiveMap.has(k))allActiveMap.set(k,{name,key:k,reports:[]});allActiveMap.get(k).reports.push(r);}
+  const allActiveGroups=[...allActiveMap.values()].sort((a,b)=>b.reports.length-a.reports.length||a.name.localeCompare(b.name));
   const archiveMap=new Map();for(const r of archivedRoles){const name=r.barangay||'Unknown barangay',k=normalizedName(name);if(!archiveMap.has(k))archiveMap.set(k,{name,key:k,reports:[]});archiveMap.get(k).reports.push(r);}
   const archivedGroups=[...archiveMap.values()].sort((a,b)=>b.reports.length-a.reports.length||a.name.localeCompare(b.name));
+  const confirmedTotal=roles.filter(r=>r.status==='confirmed').length;
   const outbreaks=alerts.filter(a=>a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'));
   const declared=outbreaks.filter(a=>a.isActive);
   const outbreakBarangays=new Set(declared.map(a=>normalizedName(a.barangay)));
@@ -261,42 +368,69 @@ function mount({api,current,container}){
   function incidentForm(seed={}){
     return `${preset}<label>Barangay <input name="barangay" maxlength="100" required value="${E(seed.barangay||'')}"></label><label>Latitude <input name="latitude" required type="number" step="any" value="${E(seed.latitude??'8.228')}"></label><label>Longitude <input name="longitude" required type="number" step="any" value="${E(seed.longitude??'124.245')}"></label><label class="P4_FORM_WIDE">Case notes <textarea name="description" maxlength="1000" rows="3" placeholder="Symptoms, animal and context"></textarea></label><label class="P4_FORM_WIDE">Photo evidence (optional) <input type="file" name="reportImage" accept="image/jpeg,image/png,image/webp"><small>Only the report owner and authorized staff can view the original photo.</small></label><p class="CV_HINT P4_FORM_WIDE">This records an incident report, not a confirmed disease or outbreak.</p>`;
   }
-  function openIncidentForm(seed={}){if(!selectedCategories.length){notice('An administrator must first create at least one incident category.',true);return null;}return popupForm('Report suspected incident',incidentForm(seed),async form=>{const d=Object.fromEntries(new FormData(form));d.photoFileId=await uploadIncidentEvidence(form);delete d.reportImage;await api.operate('submitDisease',d);});}
-  html(head('INCIDENT INTELLIGENCE','Incident Surveillance','Barangay-focused incident reporting, CVO-defined categories, and geographic monitoring.',
+  function openIncidentForm(seed={}){if(!selectedCategories.length){notice('An administrator must first create at least one incident category.',true);return null;}const d=popupForm('Report suspected incident',incidentForm(seed),async form=>{const d=Object.fromEntries(new FormData(form));d.photoFileId=await uploadIncidentEvidence(form);delete d.reportImage;await api.operate('submitDisease',d);});bindCoordinateBarangaySync(d,seed,new Set(groups.keys()));return d;}
+  html(head('INCIDENT INTELLIGENCE','Incident Surveillance','Barangay-focused incident reporting, case verification, and geographic monitoring.',
     (admin?btn('createCategory','Create category','fa-plus','CV_SOFT'):'')+btn('reportDisease','Report incident','fa-plus'))+
-    `<div class="P4_SURVEILLANCE_LAYOUT CV49_SURVEILLANCE_LAYOUT"><section class="P4_SURVEILLANCE_SIDE"><div class="P4_QUAD_STATS">${stat('Active reports',roles.length,'fa-clipboard-list','Archived reports excluded')}${stat('Confirmed outbreaks',incidentCount,'fa-triangle-exclamation','Active CVO declarations')}${stat('Barangays reporting',sortedGroups.length,'fa-map-location-dot','Locations with reports')}${stat('Active alerts',alerts.filter(a=>a.isActive).length,'fa-bullhorn','Published warnings')}</div>`+
-    `<div class="P4_SIDE_CARD CV420_REPORT_CARD"><div class="P4_SECTION_HEADING"><h3 id="cv420ReportTitle">Active reports by barangay</h3><span>${backlog.limited?'Displaying first 2,000 accessible reports · ':'Click to expand coordinates · '}Older records available in Archive</span></div>`+
+    `<div class="P4_SURVEILLANCE_LAYOUT CV49_SURVEILLANCE_LAYOUT"><section class="P4_SURVEILLANCE_SIDE"><div class="P4_QUAD_STATS">${stat('Active reports',roles.length,'fa-clipboard-list',`${confirmedTotal} confirmed · ${dismissedRoles.length} dismissed`)}${stat('Confirmed outbreaks',incidentCount,'fa-triangle-exclamation','Active CVO declarations')}${stat('Barangays reporting',sortedGroups.length,'fa-map-location-dot','Locations on heatmap')}${stat('Active alerts',alerts.filter(a=>a.isActive).length,'fa-bullhorn','Published warnings')}</div>`+
+    `<div class="P4_SIDE_CARD CV420_REPORT_CARD"><div class="P4_SECTION_HEADING"><h3 id="cv420ReportTitle">Active reports by barangay</h3><span>${backlog.limited?'Displaying first 2,000 accessible reports · ':'Click to expand coordinates · '}Dismissed cases are hidden from the heatmap</span></div>`+
     (admin?`<nav class="CV420_REPORT_TABS" aria-label="Incident report views"><button type="button" class="CV420_TAB" data-report-tab="active" aria-pressed="true"><i class="fa-solid fa-clipboard-list"></i> Active Reports <b>${roles.length}</b></button><button type="button" class="CV420_TAB" data-report-tab="archived" aria-pressed="false"><i class="fa-solid fa-box-archive"></i> Archived Reports <b>${archivedRoles.length}</b></button></nav>`:'')+
-    `<div class="P4_SIDE_FILTERS P4_SIDE_FILTERS_3"><label>Category <select id="p4DiseaseType"><option value="">All categories</option>${[...new Set([...roles,...archivedRoles].map(r=>r.diseaseType).filter(Boolean))].map(t=>`<option>${E(t)}</option>`).join('')}</select></label><label>Barangay <select id="p4Status"><option value="">All barangays</option>${[...new Map([...sortedGroups,...archivedGroups].map(g=>[g.key,g])).values()].sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${E(g.key)}">${E(g.name)}</option>`).join('')}</select></label><label>Reporter <select id="p4ReporterType">${reporterOptions.map(r=>`<option value="${E(r)}">${E(r?roleLabel(r):'All reporters')}</option>`).join('')}</select></label></div><div id="p4ReportRows" class="P4_REPORT_FEED"></div></div>`+
+    `<div class="P4_SIDE_FILTERS P4_SIDE_FILTERS_4"><label>Category <select id="p4DiseaseType"><option value="">All categories</option>${[...new Set([...allNonArchived,...archivedRoles].map(r=>r.diseaseType).filter(Boolean))].map(t=>`<option>${E(t)}</option>`).join('')}</select></label><label>Barangay <select id="p4Status"><option value="">All barangays</option>${[...new Map([...allActiveGroups,...archivedGroups].map(g=>[g.key,g])).values()].sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${E(g.key)}">${E(g.name)}</option>`).join('')}</select></label><label>Reporter <select id="p4ReporterType">${reporterOptions.map(r=>`<option value="${E(r)}">${E(r?roleLabel(r):'All reporters')}</option>`).join('')}</select></label><label>Status <select id="p4VerifyStatus"><option value="">All active</option><option value="pending">Unverified</option><option value="confirmed">Confirmed</option><option value="dismissed">Dismissed</option></select></label></div><div id="p4ReportRows" class="P4_REPORT_FEED"></div></div>`+
     (admin?`<div class="P4_SIDE_CARD CV420_OUTBREAKS"><div class="P4_SECTION_HEADING"><h3><i class="fa-solid fa-triangle-exclamation"></i> Declared Outbreaks</h3><span>${outbreaks.length} total</span></div><div class="CV420_OUTBREAK_LIST">${outbreaks.length?outbreaks.map(a=>`<div class="CV420_OUTBREAK_ROW"><span class="CV420_OUTBREAK_DOT ${a.isActive?'CV420_DOT_ACTIVE':''}"></span><div class="CV420_OUTBREAK_META"><strong>${E(a.barangay)} — ${E(a.diseaseType)}</strong><small>${a.isActive?'Active declaration':'Inactive declaration'} · ${E(D(a.issuedAt))}</small></div><button type="button" class="CV420_ACTION CV420_DANGER" data-delete-outbreak="${E(a.$id)}" title="Delete this outbreak declaration and linked owner alert"><i class="fa-solid fa-trash-can"></i> Delete</button></div>`).join(''):'<p class="P4_FEED_EMPTY">No outbreaks declared.</p>'}</div></div>`:'')+
-    `<div class="P4_SIDE_CARD P4_BRIEF"><h3>Barangay report volume</h3><div class="P46_LEGEND"><span class="P46_LEVEL P46_GREEN"></span> 1–2: Green <span class="P46_LEVEL P46_YELLOW"></span> 3–10: Yellow <span class="P46_LEVEL P46_RED"></span> 11+: Red</div><p>Colors represent the number of submitted reports, not confirmed diagnoses. Only the CVO may declare an outbreak after assessment.</p></div></section>`+
-    `<section class="P4_MAP_CARD CV49_MAP_CARD"><div class="P4_MAP_HEAD"><div><h3>Iligan City · Barangay incidents</h3><p>Click a boundary to inspect reports. Click elsewhere to report a location.</p></div><span class="P4_LIVE_TAG"><span></span> ${roles.length} active reports</span></div>`+
+    `<div class="P4_SIDE_CARD P4_BRIEF"><h3>Barangay report volume</h3><div class="P46_LEGEND"><span class="P46_LEVEL P46_GREEN"></span> 1–2: Green <span class="P46_LEVEL P46_YELLOW"></span> 3–10: Yellow <span class="P46_LEVEL P46_RED"></span> 11+: Red</div><p>Colors reflect active (unverified and confirmed) reports; dismissed false alarms are excluded. Only the CVO may declare an outbreak after assessment.</p></div></section>`+
+    `<section class="P4_MAP_CARD CV49_MAP_CARD"><div class="P4_MAP_HEAD"><div><h3>Iligan City · Barangay incidents</h3><p>Click a boundary to inspect reports. Click elsewhere to report a location.</p></div><span class="P4_LIVE_TAG"><span></span> ${roles.length} active · ${confirmedTotal} confirmed</span></div>`+
     `<div class="P4_MAP_OPTIONS"><label><input type="checkbox" ${survState.showMarkers!==false?'checked':''} id="p46ShowMarkers"> Incident markers</label><label><input type="checkbox" ${survState.showBorders!==false?'checked':''} id="p46ShowBorders"> Barangay outlines</label><label class="P46_GEO_IMPORT">Import verified GeoJSON <input id="p46ImportGeo" type="file" accept=".geojson,.json,application/geo+json,application/json" hidden></label></div>`+
     `<div id="p4Map" class="P4_MAP"></div><div class="P4_MAP_FOOT"><span id="p46BoundaryStatus">Loading barangay boundaries…</span><span>Map: OpenStreetMap</span></div></section></div>`);
-  const feed=container.querySelector('#p4ReportRows');const categoryFilter=container.querySelector('#p4DiseaseType'),statusFilter=container.querySelector('#p4Status'),reporterFilter=container.querySelector('#p4ReporterType');
+  const feed=container.querySelector('#p4ReportRows');const categoryFilter=container.querySelector('#p4DiseaseType'),statusFilter=container.querySelector('#p4Status'),reporterFilter=container.querySelector('#p4ReporterType'),verifyFilter=container.querySelector('#p4VerifyStatus');
   if(survState.category&&[...categoryFilter.options].some(o=>o.value===survState.category))categoryFilter.value=survState.category;
   if(survState.barangay&&[...statusFilter.options].some(o=>o.value===survState.barangay))statusFilter.value=survState.barangay;
   if(survState.reporter&&[...reporterFilter.options].some(o=>o.value===survState.reporter))reporterFilter.value=survState.reporter;
-  function filteredReports(){const source=reportTab==='archived'?archivedRoles:roles;return source.filter(r=>(!categoryFilter.value||r.diseaseType===categoryFilter.value)&&(!statusFilter.value||normalizedName(r.barangay)===statusFilter.value)&&(!reporterFilter.value||r.reporterRole===reporterFilter.value)&&(!filter||[r.diseaseType,r.barangay,r.description,r.status].some(v=>String(v||'').toLowerCase().includes(filter))));}
+  if(survState.verifyStatus&&[...verifyFilter.options].some(o=>o.value===survState.verifyStatus))verifyFilter.value=survState.verifyStatus;
+  function filteredReports(){
+    const source=reportTab==='archived'?archivedRoles:(verifyFilter.value==='dismissed'?dismissedRoles:verifyFilter.value?roles.filter(r=>r.status===verifyFilter.value):roles);
+    return source.filter(r=>(!categoryFilter.value||r.diseaseType===categoryFilter.value)&&(!statusFilter.value||normalizedName(r.barangay)===statusFilter.value)&&(!reporterFilter.value||r.reporterRole===reporterFilter.value)&&(!filter||[r.diseaseType,r.barangay,r.description,r.status].some(v=>String(v||'').toLowerCase().includes(filter))));
+  }
   async function viewIncidentDetails(reportId){
     const report=await api.operate('getIncidentReportDetails',{reportId});
     const overlay=document.createElement('div');overlay.className='CV_MODAL CV422_REPORT_MODAL';
     const image=report.photoUrl?`<div class="CV422_REPORT_PHOTO"><img src="${E(report.photoUrl)}" alt="Submitted incident evidence" onerror="this.hidden=true;this.parentElement.innerHTML='Evidence photo is unavailable or expired.'"></div>`:'<div class="CV422_REPORT_NO_IMAGE"><i class="fa-regular fa-image"></i> No photo evidence was submitted.</div>';
     const lat=Number(report.latitude),lon=Number(report.longitude),hasCoords=Number.isFinite(lat)&&Number.isFinite(lon);
-    overlay.innerHTML=`<div class="CV_MODAL_CARD CV422_REPORT_DIALOG" role="dialog" aria-modal="true" aria-label="Incident report details"><div class="CV422_REPORT_HEADER"><div><span class="CV422_REPORT_OVERLINE">CITYVETHUB • INCIDENT RECORD</span><h3>${E(report.diseaseType)}</h3><p><i class="fa-solid fa-location-dot"></i> ${E(report.barangay)} · ${E(dateTime(report.reportedAt))}</p></div><button type="button" class="CV_SOFT CV_BUTTON" data-close aria-label="Close report">✕</button></div><div class="CV422_REPORT_PROFILE"><span class="CV422_REPORT_PROFILE_ICON"><i class="fa-solid fa-user-shield"></i></span><div><strong>${E(report.reporterName||'Reporter')}</strong><small>${E(roleLabel(report.reporterRole||'unknown'))} · ${E(report.status||'pending')}</small></div></div><div class="CV422_REPORT_DESCRIPTION"><h4>Incident observations</h4><p>${E(report.description||'No additional details provided.')}</p></div>${image}<div class="CV422_REPORT_FACTS"><div><span>Barangay</span><strong>${E(report.barangay)}</strong></div><div><span>Submitted</span><strong>${E(dateTime(report.reportedAt))}</strong></div><div><span>Latitude</span><strong>${E(report.latitude)}</strong></div><div><span>Longitude</span><strong>${E(report.longitude)}</strong></div></div><div class="CV422_REPORT_FOOT">${hasCoords?`<a class="CV_BUTTON CV_SOFT" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-map-location-dot"></i> View location</a>`:''}${admin?`<button type="button" class="CV_BUTTON CV_SOFT" data-report-archive><i class="fa-solid fa-box-archive"></i> ${report.status==='archived'?'Restore':'Archive'}</button><button type="button" class="CV_BUTTON CV422_DANGER" data-report-delete><i class="fa-solid fa-trash"></i> Delete</button>`:''}</div><div class="CV422_MODAL_ERROR" role="alert" hidden></div></div>`;
+    const st=report.status||'pending';
+    const statusPill=`<span class="CV423_CASE_PILL CV423_CASE_${E(st)}">${E(statusLabel(st))}</span>`;
+    const confirmMeta=(st==='confirmed'&&report.confirmedAt)?`<div class="CV423_CONFIRM_META"><i class="fa-solid fa-circle-check"></i> Confirmed by <strong>${E(report.confirmedByName||'CVO Staff')}</strong> on ${E(dateTime(report.confirmedAt))}</div>`:st==='dismissed'?`<div class="CV423_CONFIRM_META CV423_META_DISMISSED"><i class="fa-solid fa-ban"></i> Dismissed as unsubstantiated — excluded from the surveillance heatmap.</div>`:'';
+    const reviewButtons=staff&&st!=='archived'?(
+      (st!=='confirmed'?`<button type="button" class="PRIMARY_ACTION CV_BUTTON" data-report-confirm><i class="fa-solid fa-circle-check"></i> Confirm case</button>`:'')+
+      (st!=='dismissed'?`<button type="button" class="CV_BUTTON CV422_DANGER" data-report-dismiss><i class="fa-solid fa-ban"></i> Dismiss</button>`:'')+
+      ((st==='confirmed'||st==='dismissed')?`<button type="button" class="CV_BUTTON CV_SOFT" data-report-reopen><i class="fa-solid fa-rotate-left"></i> Reopen</button>`:'')
+    ):'';
+    overlay.innerHTML=`<div class="CV_MODAL_CARD CV422_REPORT_DIALOG" role="dialog" aria-modal="true" aria-label="Incident report details"><div class="CV422_REPORT_HEADER"><div><span class="CV422_REPORT_OVERLINE">CITYVETHUB • INCIDENT RECORD</span><h3>${E(report.diseaseType)}</h3><p><i class="fa-solid fa-location-dot"></i> ${E(report.barangay)} · ${E(dateTime(report.reportedAt))}</p></div><button type="button" class="CV_SOFT CV_BUTTON" data-close aria-label="Close report">✕</button></div><div class="CV422_REPORT_PROFILE"><span class="CV422_REPORT_PROFILE_ICON"><i class="fa-solid fa-user-shield"></i></span><div><strong>${E(report.reporterName||'Reporter')}</strong><small>${E(roleLabel(report.reporterRole||'unknown'))} · ${statusPill}</small></div></div>${confirmMeta}<div class="CV422_REPORT_DESCRIPTION"><h4>Incident observations</h4><p>${E(report.description||'No additional details provided.')}</p></div>${image}<div class="CV422_REPORT_FACTS"><div><span>Barangay</span><strong>${E(report.barangay)}</strong></div><div><span>Submitted</span><strong>${E(dateTime(report.reportedAt))}</strong></div><div><span>Latitude</span><strong>${E(report.latitude)}</strong></div><div><span>Longitude</span><strong>${E(report.longitude)}</strong></div></div><div class="CV422_REPORT_FOOT">${hasCoords?`<a class="CV_BUTTON CV_SOFT" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-map-location-dot"></i> View location</a>`:''}${reviewButtons}${admin?`<button type="button" class="CV_BUTTON CV_SOFT" data-report-archive><i class="fa-solid fa-box-archive"></i> ${st==='archived'?'Restore':'Archive'}</button><button type="button" class="CV_BUTTON CV422_DANGER" data-report-delete><i class="fa-solid fa-trash"></i> Delete</button>`:''}</div><div class="CV422_MODAL_ERROR" role="alert" hidden></div></div>`;
     const close=()=>overlay.remove();overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))close();});
-    overlay.addEventListener('click',async e=>{const archive=e.target.closest('[data-report-archive]'),del=e.target.closest('[data-report-delete]');if(!archive&&!del)return;
+    overlay.addEventListener('click',async e=>{
+      const confirmBtn=e.target.closest('[data-report-confirm]'),dismissBtn=e.target.closest('[data-report-dismiss]'),reopenBtn=e.target.closest('[data-report-reopen]');
+      if(confirmBtn||dismissBtn||reopenBtn){
+        const op=confirmBtn?'confirmIncidentReport':dismissBtn?'dismissIncidentReport':'reopenIncidentReport';
+        const promptMsg=confirmBtn?'Confirm this incident as a verified disease case? It will be added to Confirmed Disease Incidents.':dismissBtn?'Dismiss this report as a false alarm / not real? It will be removed from the active surveillance heatmap.':'Reopen this report as Unverified (pending review)?';
+        if(!confirm(promptMsg))return;
+        const btnEl=confirmBtn||dismissBtn||reopenBtn;btnEl.disabled=true;
+        try{await api.operate(op,{reportId:report.$id});close();await refresh(true);notice(confirmBtn?'Incident confirmed and logged.':dismissBtn?'Report dismissed and removed from heatmap.':'Report reopened as unverified.');}
+        catch(err){const target=overlay.querySelector('.CV422_MODAL_ERROR');target.hidden=false;target.textContent=api.readableError(err);btnEl.disabled=false;}
+        return;
+      }
+      const archive=e.target.closest('[data-report-archive]'),del=e.target.closest('[data-report-delete]');if(!archive&&!del)return;
       const operation=del?'deleteIncidentReport':report.status==='archived'?'restoreArchivedIncident':'archiveIncidentReport';
       if(!confirm(del?'Permanently delete this report? This cannot be undone.':'Update this report status?'))return;
       const action=archive||del;action.disabled=true;try{await api.operate(operation,{reportId:report.$id});close();await refresh(true);notice(del?'Report permanently deleted.':'Report status updated.');}catch(err){const target=overlay.querySelector('.CV422_MODAL_ERROR');target.hidden=false;target.textContent=api.readableError(err);action.disabled=false;}
     });document.body.append(overlay);
   }
   function renderGroups(){
-    const found=filteredReports(),sourceGroups=reportTab==='archived'?archivedGroups:sortedGroups;
+    const found=filteredReports(),sourceGroups=reportTab==='archived'?archivedGroups:(verifyFilter.value==='dismissed'?allActiveGroups:sortedGroups);
     const byGroup=sourceGroups.map(g=>({...g,reports:found.filter(r=>normalizedName(r.barangay)===g.key)})).filter(g=>g.reports.length);
-    const groupRows=byGroup.map(g=>`<section class="P46_BRNG_GROUP"><button type="button" class="P46_BRNG_HEAD" data-barangay="${E(g.key)}"><span class="P46_LEVEL P46_${hasOutbreak(g.name)&&reportTab==='active'?'RED':severity(g.reports.length).toUpperCase()}"></span><strong>${E(g.name)}</strong>${hasOutbreak(g.name)&&reportTab==='active'?'<span class="CV420_OUTBREAK_LABEL">OUTBREAK</span>':''}<span>${g.reports.length} reports</span><i class="fa-solid fa-chevron-down"></i></button><div class="P46_BRNG_DETAILS" ${selected===g.key?'':'hidden'}>${g.reports.map(r=>`<article class="P46_INCIDENT_ROW CV422_REPORT_ENTRY" tabindex="0" role="button" aria-label="Open incident details: ${E(r.diseaseType)} in ${E(r.barangay)}" data-view-report="${E(r.$id)}"><div class="CV422_REPORT_SUMMARY"><span class="CV422_REPORT_ICON"><i class="fa-solid fa-file-medical"></i></span><div class="CV422_REPORT_SUMMARY_TEXT"><b>${E(r.diseaseType)}</b><small>${E(D(r.reportedAt))} · ${E(roleLabel(r.reporterRole))} · ${E(r.status)}</small></div><span class="CV422_VIEW_MORE"><i class="fa-solid fa-expand"></i> View details</span></div></article>`).join('')}${admin&&reportTab==='active'&&!hasOutbreak(g.name)?`<button class="CV_BUTTON P46_DECLARE" type="button" data-declare="${E(g.key)}">Declare outbreak</button>`:''}</div></section>`).join('');
-    feed.innerHTML=groupRows||(reportTab==='archived'?'<p class="P4_FEED_EMPTY">No archived reports match these filters.</p>':'<p class="P4_FEED_EMPTY">No active reports match these filters.</p>');
-    const title=container.querySelector('#cv420ReportTitle');if(title)title.textContent=reportTab==='archived'?'Archived Reports by Barangay':'Active reports by barangay';
+    const groupRows=byGroup.map(g=>{
+      const confCount=g.reports.filter(r=>r.status==='confirmed').length;
+      const countLabel=confCount?`${g.reports.length} reports · ${confCount} confirmed`:`${g.reports.length} reports`;
+      return `<section class="P46_BRNG_GROUP"><button type="button" class="P46_BRNG_HEAD" data-barangay="${E(g.key)}"><span class="P46_LEVEL P46_${hasOutbreak(g.name)&&reportTab==='active'&&verifyFilter.value!=='dismissed'?'RED':severity(g.reports.length).toUpperCase()}"></span><strong>${E(g.name)}</strong>${hasOutbreak(g.name)&&reportTab==='active'&&verifyFilter.value!=='dismissed'?'<span class="CV420_OUTBREAK_LABEL">OUTBREAK</span>':''}<span>${countLabel}</span><i class="fa-solid fa-chevron-down"></i></button><div class="P46_BRNG_DETAILS" ${selected===g.key?'':'hidden'}>${g.reports.map(r=>`<article class="P46_INCIDENT_ROW CV422_REPORT_ENTRY" tabindex="0" role="button" aria-label="Open incident details: ${E(r.diseaseType)} in ${E(r.barangay)}" data-view-report="${E(r.$id)}"><div class="CV422_REPORT_SUMMARY"><span class="CV422_REPORT_ICON"><i class="fa-solid fa-file-medical"></i></span><div class="CV422_REPORT_SUMMARY_TEXT"><b>${E(r.diseaseType)}</b><small>${E(D(r.reportedAt))} · ${E(roleLabel(r.reporterRole))} · <span class="CV423_CASE_PILL CV423_CASE_${E(r.status)}">${E(statusLabel(r.status))}</span></small></div><span class="CV422_VIEW_MORE"><i class="fa-solid fa-expand"></i> View details</span></div></article>`).join('')}${admin&&reportTab==='active'&&verifyFilter.value!=='dismissed'&&!hasOutbreak(g.name)?`<button class="CV_BUTTON P46_DECLARE" type="button" data-declare="${E(g.key)}">Declare outbreak</button>`:''}</div></section>`;
+    }).join('');
+    feed.innerHTML=groupRows||(reportTab==='archived'?'<p class="P4_FEED_EMPTY">No archived reports match these filters.</p>':verifyFilter.value==='dismissed'?'<p class="P4_FEED_EMPTY">No dismissed reports match these filters.</p>':'<p class="P4_FEED_EMPTY">No active reports match these filters.</p>');
+    const title=container.querySelector('#cv420ReportTitle');if(title)title.textContent=reportTab==='archived'?'Archived Reports by Barangay':verifyFilter.value==='dismissed'?'Dismissed Reports (Hidden from Heatmap)':'Active reports by barangay';
     container.querySelectorAll('[data-report-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.reportTab===reportTab)));
   }
   function selectBarangay(key){selected=selected===key?null:key;survState.selected=selected;renderGroups();if(!selected||!map)return;
@@ -304,7 +438,7 @@ function mount({api,current,container}){
    const g=(reportTab==='archived'?archiveMap:groups).get(selected),r=g?.reports.find(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude)));if(r)map.setView([Number(r.latitude),Number(r.longitude)],14);
   }
   const fileInput=container.querySelector('#p46ImportGeo'),boundaryStatus=container.querySelector('#p46BoundaryStatus');
-  function featureName(feature){const p=feature?.properties||{};return p.name||p.barangay||p.Barangay||p.ADM4_EN||p.NAME_4||p.BRGY_NAME||p.Brgy_Name||p.Barangay_Name||'';}
+  const featureName=geoFeatureName;
   function applyGeoJSON(fc,source){
     if(!map||!window.L||fc?.type!=='FeatureCollection'||!Array.isArray(fc.features))throw Error('Not a valid GeoJSON FeatureCollection.');
     const keep=fc.features.filter(f=>['Polygon','MultiPolygon'].includes(f.geometry?.type)&&featureName(f));if(!keep.length)throw Error('GeoJSON must contain named polygon boundaries.');
@@ -327,7 +461,7 @@ function mount({api,current,container}){
   }
   fileInput.addEventListener('change',async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>9000000)throw Error('GeoJSON file is too large (maximum 9 MB).');applyGeoJSON(JSON.parse(await file.text()),'uploaded GeoJSON');}catch(err){boundaryStatus.textContent='Boundary import failed: '+err.message;}});
   container.querySelectorAll('[data-report-tab]').forEach(b=>b.addEventListener('click',()=>{reportTab=b.dataset.reportTab;survState.reportTab=reportTab;selected=null;survState.selected=null;renderGroups();}));
-  [categoryFilter,statusFilter,reporterFilter].forEach(n=>n.addEventListener('change',()=>{survState.category=categoryFilter.value;survState.barangay=statusFilter.value;survState.reporter=reporterFilter.value;renderGroups();}));
+  [categoryFilter,statusFilter,reporterFilter,verifyFilter].forEach(n=>n.addEventListener('change',()=>{survState.category=categoryFilter.value;survState.barangay=statusFilter.value;survState.reporter=reporterFilter.value;survState.verifyStatus=verifyFilter.value;renderGroups();}));
   renderGroups();
   if(survState.feedScroll)feed.scrollTop=survState.feedScroll;
   container.querySelector('.CV420_OUTBREAK_LIST')?.addEventListener('click',async event=>{
@@ -370,32 +504,20 @@ function mount({api,current,container}){
     if(known)window.L.circleMarker([Number(known.latitude),Number(known.longitude)],{radius:10,weight:2,color:'#dc2626',fillColor:'#ef4444',fillOpacity:.45,className:'CV420_OUTBREAK_BEACON'}).bindTooltip(`Declared outbreak: ${E(a.barangay)} — ${E(a.diseaseType)}`).addTo(pulseMarkers);
   }
   for(const r of roles){const lat=Number(r.latitude),lng=Number(r.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lng)||lat<4||lat>22||lng<116||lng>127)continue;
-    window.L.circleMarker([lat,lng],{radius:5,color:'#1e40af',fillColor:borderColor(groups.get(normalizedName(r.barangay))?.reports.length||0),fillOpacity:.8}).bindPopup(`<strong>${E(r.diseaseType)}</strong><p>${E(r.barangay)} · ${E(r.status)}</p>`).addTo(markers);
+    const isConf=r.status==='confirmed';
+    window.L.circleMarker([lat,lng],{radius:isConf?6:5,weight:isConf?2.5:1.5,color:isConf?'#047857':'#1e40af',fillColor:isConf?'#10b981':borderColor(groups.get(normalizedName(r.barangay))?.reports.length||0),fillOpacity:isConf?.9:.8}).bindPopup(`<strong>${E(r.diseaseType)}</strong><p>${E(r.barangay)} · ${E(statusLabel(r.status))}</p>`).addTo(markers);
   }
   const outlines=container.querySelector('#p46ShowBorders');
   outlines.addEventListener('change',e=>{survState.showBorders=e.target.checked;if(geoLayer)e.target.checked?geoLayer.addTo(map):map.removeLayer(geoLayer);});
   container.querySelector('#p46ShowMarkers').addEventListener('change',e=>{survState.showMarkers=e.target.checked;e.target.checked?markers.addTo(map):map.removeLayer(markers);});
-  // First try cached GeoJSON, then local dataset, then remote ArcGIS fallback.
+  // Load shared GeoJSON boundaries (cached, local dataset, or ArcGIS fallback).
   (async()=>{
-    if(survState.cachedGeo){try{applyGeoJSON(survState.cachedGeo,survState.cachedGeoSource||'cached boundaries');return;}catch{}}
-    try{const r=await fetch('./assets/iligan-barangays.geojson');if(r.ok){applyGeoJSON(await r.json(),'local dataset');return;}}catch{}
-    try{
-      const env=encodeURIComponent(JSON.stringify({xmin:124.10,ymin:8.05,xmax:124.38,ymax:8.35,spatialReference:{wkid:4326}}));
-      const url=`https://services7.arcgis.com/poQdgvLD6DHnbpsT/arcgis/rest/services/Philippine_Administrative_Boundaries/FeatureServer/3/query?where=1%3D1&geometry=${env}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&outSR=4326&returnGeometry=true&f=geojson&resultRecordCount=250`;
-      const ctrl=new AbortController(),kill=setTimeout(()=>ctrl.abort(),9000);
-      try{const r=await fetch(url,{signal:ctrl.signal});if(!r.ok)throw Error('ArcGIS HTTP '+r.status);const json=await r.json();
-        const relevant=(json.features||[]).filter(f=>/iligan/i.test(JSON.stringify(f.properties||{}))||groups.has(normalizedName(featureName(f))));
-        if(relevant.length)applyGeoJSON({type:'FeatureCollection',features:relevant},'remote boundaries');else throw Error('No matching city polygons returned');
-      }finally{clearTimeout(kill);}
-    }catch{boundaryStatus.textContent='Exact outlines are unavailable. Import a verified Iligan barangay GeoJSON; incident markers still work.';}
+    const fc=await ensureBoundaryGeo(new Set(groups.keys()));
+    if(fc){try{applyGeoJSON(fc,survState.cachedGeoSource||'remote boundaries');return;}catch{}}
+    boundaryStatus.textContent='Exact outlines are unavailable. Import a verified Iligan barangay GeoJSON; incident markers still work.';
   })();
   map.on('click',evt=>{
-    const dialog=openIncidentForm({latitude:evt.latlng.lat.toFixed(6),longitude:evt.latlng.lng.toFixed(6)});if(!dialog)return;
-    const getBarangayInput=()=>dialog.querySelector('[name="barangay"]');
-    // Prefer polygon intersection; otherwise reverse-geocode as a best-effort hint.
-    let matched='';if(geoLayer)geoLayer.eachLayer(layer=>{if(!matched&&layer.getBounds?.().contains(evt.latlng)&&layer.feature){matched=featureName(layer.feature);}});
-    if(matched){const input=getBarangayInput();if(input)input.value=window.CityVetBarangays?.match(matched)||matched;return;}
-    fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${evt.latlng.lat}&lon=${evt.latlng.lng}&zoom=14`,{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).then(d=>{if(dialog.isConnected){const input=getBarangayInput();const raw=d.address?.suburb||d.address?.village||d.address?.neighbourhood||'';const matched=window.CityVetBarangays?.match(raw)||'';if(input&&!input.value&&matched)input.value=matched;}}).catch(()=>{});
+    openIncidentForm({latitude:evt.latlng.lat.toFixed(6),longitude:evt.latlng.lng.toFixed(6)});
   });
   setTimeout(()=>map?.invalidateSize(),130);
  }
@@ -409,7 +531,7 @@ function mount({api,current,container}){
  function monthSeries(records){const today=new Date(),months=[];for(let i=5;i>=0;i--){const d=new Date(today.getFullYear(),today.getMonth()-i,1);months.push({year:d.getFullYear(),month:d.getMonth(),label:d.toLocaleDateString('en-PH',{month:'short'})});}return {labels:months.map(m=>m.label),values:months.map(m=>records.filter(r=>{const t=new Date(r.$createdAt||r.submittedAt);return t.getFullYear()===m.year&&t.getMonth()===m.month;}).length)};}
  async function reports(){if(!admin)throw Error('Only administrators can see aggregate reports');
   const names=['petRequests','pets','petProfiles','medical','diseaseReports','diseaseIncidents','diseaseAlerts','adoptionListings','adoptionApplications','ownership'];
-  const entries=await Promise.all(names.map(async k=>[k,await fetchTable(k)]));const d=Object.fromEntries(entries);d.diseaseReports=d.diseaseReports.filter(r=>r.status!=='archived');
+  const entries=await Promise.all(names.map(async k=>[k,await fetchTable(k)]));const d=Object.fromEntries(entries);d.diseaseReports=d.diseaseReports.filter(r=>r.status!=='archived'&&r.status!=='dismissed');
   const vaccinePets=new Set(d.medical.filter(r=>r.recordType==='Vaccination').map(r=>r.petId)),covered=d.pets.filter(p=>vaccinePets.has(p.$id)).length;
   const coverage=d.pets.length?Math.round(covered/d.pets.length*100):0;
   const requestsByMonth=monthSeries(d.petRequests);

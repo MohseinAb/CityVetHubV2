@@ -691,6 +691,20 @@ export default async ({req,res,log,error})=>{
           try{const author=await api('GET','/users/'+idPart(report.reportedById));reporterName=String(author.name||author.email||'Reporter').slice(0,128);}
           catch(err){if(err.status!==404)throw err;}
         }
+        let confirmedAt=null,confirmedByName='';
+        if(report.status==='confirmed'){
+          try{
+            const incRes=await api('GET',path(T.incidents)+'?limit=100');
+            const inc=(incRes.rows||[]).find(x=>x.reportId===report.$id);
+            if(inc){
+              confirmedAt=inc.confirmedAt||null;
+              if(inc.confirmedById){
+                try{const verifier=await api('GET','/users/'+idPart(inc.confirmedById));confirmedByName=String(verifier.name||verifier.email||'CVO Staff').slice(0,128);}
+                catch(err){if(err.status!==404)throw err;}
+              }
+            }
+          }catch(err){log?.('Incident confirmation lookup error: '+err.message);}
+        }
         let photoUrl='';
         if(report.photoFileId){
           try{
@@ -700,7 +714,47 @@ export default async ({req,res,log,error})=>{
             photoUrl=`${ENDPOINT}/storage/buckets/${idPart(MEDIA)}/files/${idPart(report.photoFileId)}/view?project=${encodeURIComponent(PROJECT)}&token=${encodeURIComponent(token.secret)}`;
           }catch(err){if(err.status!==404)throw err;log?.('Incident report image unavailable: '+report.$id);}
         }
-        result={...report,reporterName,photoUrl};break;
+        result={...report,reporterName,photoUrl,confirmedAt,confirmedByName};break;
+      }
+      case 'confirmIncidentReport':{
+        verify(403,admin||officer,'Only CVO Administrators and Field Officers can confirm incident reports.');
+        const report=await row(T.reports,requireText(data.reportId,36));
+        verify(409,report.status!=='archived','Restore archived reports before confirming.');
+        verify(409,report.status!=='confirmed','This incident report is already confirmed.');
+        const confirmedAt=new Date().toISOString();
+        const incRes=await api('GET',path(T.incidents)+'?limit=100');
+        let incident=(incRes.rows||[]).find(x=>x.reportId===report.$id);
+        if(!incident){
+          incident=await create(T.incidents,'unique()',{reportId:report.$id,diseaseType:report.diseaseType,barangay:report.barangay||'',latitude:Number(report.latitude),longitude:Number(report.longitude),confirmedById:user.$id,confirmedAt},[roleAdmin,roleOfficer]);
+        }
+        result=await update(T.reports,report.$id,{status:'confirmed'});
+        result={...result,incident};
+        break;
+      }
+      case 'dismissIncidentReport':{
+        verify(403,admin||officer,'Only CVO Administrators and Field Officers can dismiss incident reports.');
+        const report=await row(T.reports,requireText(data.reportId,36));
+        verify(409,report.status!=='archived','Archived reports cannot be dismissed.');
+        verify(409,report.status!=='dismissed','This incident report is already dismissed.');
+        if(report.status==='confirmed'){
+          const incRes=await api('GET',path(T.incidents)+'?limit=100');
+          const matches=(incRes.rows||[]).filter(x=>x.reportId===report.$id);
+          for(const inc of matches){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
+        }
+        result=await update(T.reports,report.$id,{status:'dismissed'});
+        break;
+      }
+      case 'reopenIncidentReport':{
+        verify(403,admin||officer,'Only CVO Administrators and Field Officers can reopen incident reports.');
+        const report=await row(T.reports,requireText(data.reportId,36));
+        verify(409,report.status==='dismissed'||report.status==='confirmed','Only confirmed or dismissed reports can be reopened.');
+        if(report.status==='confirmed'){
+          const incRes=await api('GET',path(T.incidents)+'?limit=100');
+          const matches=(incRes.rows||[]).filter(x=>x.reportId===report.$id);
+          for(const inc of matches){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
+        }
+        result=await update(T.reports,report.$id,{status:'pending'});
+        break;
       }
       case 'archiveIncidentReport':{
         verify(403,admin,'Only CVO Administrators can archive incident reports.');
@@ -719,6 +773,10 @@ export default async ({req,res,log,error})=>{
       case 'deleteIncidentReport':{
         verify(403,admin,'Only CVO Administrators can permanently delete reports.');
         const report=await row(T.reports,requireText(data.reportId,36));
+        try{
+          const incRes=await api('GET',path(T.incidents)+'?limit=100');
+          for(const inc of (incRes.rows||[]).filter(x=>x.reportId===report.$id)){await remove(T.incidents,inc.$id);}
+        }catch(err){if(err.status!==404)log?.('Cleanup incident error: '+err.message);}
         await remove(T.reports,report.$id);
         result={deleted:true,reportId:report.$id};
         break;
@@ -735,14 +793,29 @@ export default async ({req,res,log,error})=>{
         break;
       }
       case 'reviewDisease':{
-        throw Object.assign(new Error('Individual incident confirmations have been retired. Review the barangay and declare an outbreak instead.'),{status:410});
+        verify(403,admin||officer,'Only CVO Administrators and Field Officers can review incident reports.');
+        const decision=accept(data.decision,['confirm','dismiss']);
+        const report=await row(T.reports,requireText(data.reportId,36));
+        verify(409,report.status!=='archived','Restore archived reports before reviewing.');
+        if(decision==='confirm'){
+          const incRes=await api('GET',path(T.incidents)+'?limit=100');
+          if(!(incRes.rows||[]).some(x=>x.reportId===report.$id)){
+            await create(T.incidents,'unique()',{reportId:report.$id,diseaseType:report.diseaseType,barangay:report.barangay||'',latitude:Number(report.latitude),longitude:Number(report.longitude),confirmedById:user.$id,confirmedAt:new Date().toISOString()},[roleAdmin,roleOfficer]);
+          }
+          result=await update(T.reports,report.$id,{status:'confirmed'});
+        }else{
+          const incRes=await api('GET',path(T.incidents)+'?limit=100');
+          for(const inc of (incRes.rows||[]).filter(x=>x.reportId===report.$id)){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
+          result=await update(T.reports,report.$id,{status:'dismissed'});
+        }
+        break;
       }
       case 'declareOutbreak':{
         verify(403,admin,'Only administrators can declare outbreaks');
         const barangay=cityBarangay(data.barangay),diseaseType=requireText(data.diseaseType,60),message=requireText(data.message,1500);
         const all=await api('GET',path(T.reports)+'?limit=100');
-        verify(409,(all.rows||[]).some(r=>r.status!=='archived'&&r.barangay?.toLowerCase().trim()===barangay.toLowerCase().trim()&&r.diseaseType===diseaseType),
-          'At least one submitted incident in this barangay/category is required.');
+        verify(409,(all.rows||[]).some(r=>r.status!=='archived'&&r.status!=='dismissed'&&r.barangay?.toLowerCase().trim()===barangay.toLowerCase().trim()&&r.diseaseType===diseaseType),
+          'At least one active (unverified or confirmed) incident in this barangay/category is required.');
         const alerts=await api('GET',path(T.alerts)+'?limit=100');
         verify(409,!(alerts.rows||[]).some(a=>a.isActive && a.barangay?.toLowerCase().trim()===barangay.toLowerCase().trim()&&a.diseaseType===diseaseType&&(a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'))),
           'An active outbreak declaration already exists for this barangay and category.');

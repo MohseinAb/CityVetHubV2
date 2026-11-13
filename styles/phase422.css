@@ -410,3 +410,27 @@ body.dark-theme .BUTTON_SOLID{background:#fff;color:#1e3a8a;border-color:#fff}
 .dark-theme .CV_OWNER_ANNOUNCE_TAG{background:#233b67;color:#93c5fd}
 .CV_OWNER_ANNOUNCE_DATE{font-size:11px;color:var(--sub);font-weight:500}
 .CV_OWNER_ANNOUNCE_ITEM p{font-size:12.5px;color:var(--sub);line-height:1.55;margin:0}
+
+/* --- Surveillance Case Verification & Status Filter --- */
+.P4_SIDE_FILTERS_4{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:650px){.P4_SIDE_FILTERS_4{grid-template-columns:1fr}}
+.CV423_CASE_PILL{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;line-height:1.35;border:1px solid transparent}
+.CV423_CASE_pending{background:#fff8eb;color:#9a5b00;border-color:#fde6b8}
+.CV423_CASE_confirmed{background:#ecfdf3;color:#067647;border-color:#abefc6}
+.CV423_CASE_dismissed{background:#f1f5f9;color:#475569;border-color:#cbd5e1}
+.CV423_CASE_archived{background:#f8fafc;color:#64748b;border-color:#e2e8f0}
+.CV423_CONFIRM_META{margin:14px 25px 0;padding:10px 14px;border-radius:11px;background:#ecfdf3;border:1px solid #abefc6;color:#067647;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.CV423_META_DISMISSED{background:#f8fafc;border-color:#cbd5e1;color:#475569}
+[data-theme="dark"] .CV423_CASE_pending,body.dark .CV423_CASE_pending{background:rgba(245,158,11,.15);color:#fcd34d;border-color:rgba(245,158,11,.35)}
+[data-theme="dark"] .CV423_CASE_confirmed,body.dark .CV423_CASE_confirmed{background:rgba(16,185,129,.15);color:#6ee7b7;border-color:rgba(16,185,129,.35)}
+[data-theme="dark"] .CV423_CASE_dismissed,body.dark .CV423_CASE_dismissed{background:rgba(148,163,184,.15);color:#cbd5e1;border-color:rgba(148,163,184,.3)}
+[data-theme="dark"] .CV423_CONFIRM_META,body.dark .CV423_CONFIRM_META{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.3);color:#6ee7b7}
+[data-theme="dark"] .CV423_META_DISMISSED,body.dark .CV423_META_DISMISSED{background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.3);color:#cbd5e1}
+@media(min-width:1051px){
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{height:clamp(640px,78dvh,880px);min-height:640px!important}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:380px!important;max-height:none!important}
+}
+@media(max-width:1050px){
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{min-height:600px!important;height:680px}
+  .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:340px!important;max-height:none!important}
+}

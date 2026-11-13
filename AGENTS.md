@@ -51,6 +51,9 @@
 | `communityComments`| `community_comments`| Thread replies/comments |
 | `communityVotes` | `community_votes` | Likes / upvotes |
 | `communityAnnouncements` | `community_announcements` | CVO official announcements (`audience: owners, officers, both`) |
+| `petRegistryIds` (Internal) | `pet_registry_ids` | Internal backend concurrency mutex table for atomic CVO ID reservation (`CVH-2026-XXXX`) |
+
+> Full live Appwrite database export with all attributes, data types, and index constraints is documented in `full_schema.md`.
 
 ### 3. Frontend Script Responsibilities (`scripts/`)
 * **`config.js`**: Frozen `window.CITYVET_CONFIG` containing IDs and table names.
@@ -65,7 +68,7 @@
   * `traceability`: Microchip, QR passports, ownership change logs.
   * `users`: Account verification, role assignment.
 * **`phase4-features.js`**: `window.CityVetPhase4`. Advanced modules:
-  * `surveillance`: Interactive Leaflet map, Iligan barangay boundary overlays, incident reports, case tracking.
+  * `surveillance`: Interactive Leaflet map, Iligan barangay boundary overlays, incident reports, status filtering (`Unverified`, `Confirmed`, `Dismissed`), and staff case confirmation/dismissal (dismissed reports are excluded from the heatmap and map markers).
   * `reports`: CVO analytics, charts (Chart.js), exportable summaries.
   * `profile`: User personal settings, ID submission for CVO verification, theme toggle.
 * **`community.js`**: `window.CityVetCommunity`. Community discussions, channel filtering, threaded comments, voting, CVO announcement broadcasting.
@@ -85,14 +88,15 @@
 * **`buttons_styles.css` & `inputs_styles.css`**: Form controls, buttons, combobox dropdowns.
 
 ### 5. Backend Functions Architecture (`functions/cityvethub-operations/`)
-* **`index.js`**: Main entrypoint for Appwrite Function (`node-22`). Verifies user JWT, enforces role authorization, and routes action calls (`createInventoryPet`, `updateInventoryPet`, `updatePetDetails`, `reviewPet`, `completeAdoption`, `transferOwnership`, `getStaffPetDirectory`, `community*`, etc.). `updateInventoryPet` lets owners update identity fields across `pet_profiles`, `pet_passports`, `pets`, `pet_requests`, and active `adoption_listings` (including adopted/verified pets, preserving `officialRegistryId`).
+* **`index.js`**: Main entrypoint for Appwrite Function (`node-22`). Verifies user JWT, enforces role authorization, and routes action calls (`createInventoryPet`, `updateInventoryPet`, `updatePetDetails`, `reviewPet`, `completeAdoption`, `transferOwnership`, `getStaffPetDirectory`, `confirmIncidentReport`, `dismissIncidentReport`, `reopenIncidentReport`, `community*`, etc.). `updateInventoryPet` lets owners update identity fields across `pet_profiles`, `pet_passports`, `pets`, `pet_requests`, and active `adoption_listings` (including adopted/verified pets, preserving `officialRegistryId`).
 * **`community.js`**: Server-side logic for community discussions, channel CRUD, comment nesting, and CVO announcement publishing/filtering by role and barangay.
 * **`matching.js`**: Adoption notification and preference matching engine.
 * **`../cityvethub-operations.tar.gz`**: Manual Appwrite Console deployment archive. Appwrite MCP API key lacks `functions.write` scope, so always rebuild `functions/cityvethub-operations.tar.gz` (`tar -czf functions/cityvethub-operations.tar.gz -C functions/cityvethub-operations index.js community.js matching.js package.json`) whenever modifying backend function code so the user can upload it directly.
 
 ### 6. Thesis Documentation (`Thesis Paper files/`)
-* **`Thesis - Abdulgani,Lucasan (1) (3).docx`**: Main thesis manuscript (Book Antiqua 12pt, double-spaced justified prose, `Figure X.Y` captions centered below screenshots; Chapter 4 contains Pet Owner Figures `4.1`–`4.9` followed by Administrator Figures `4.10`–`4.20`).
+* **`Thesis - Abdulgani,Lucasan (1) (3).docx` & `Thesis - Abdulgani,Lucasan (1) (3) - Updated.docx`**: Main thesis manuscript (Book Antiqua 12pt, double-spaced justified prose, `Figure X.Y` captions centered below screenshots; Chapter 4 contains Pet Owner Figures `4.1`–`4.9` followed by Administrator Figures `4.10`–`4.20`). `Figure 3.4` (Entity Relationship Diagram) embeds high-resolution PNG (`cityvethub_erd.png`, 3520x2190) with clean Crow's Foot cardinality notation (`||`, `>o`), strictly parallel routing channels with zero collinear line overlaps, plain unadorned black relationship text positioned on top of horizontal lines or safely indented to the side of vertical lines with zero merging into cardinalities or table boxes, automatic line-crossover jumper curves (`⌒`), full bottom and right margin clearances (zero text clipping), header banners/domain pills removed for academic presentation, and `community_announcements` (`issuedById`) linked to `user_profiles`.
 * **`Pet Owner/` & `Admin/`**: Web application screenshots organized by user role for Chapter 4 (`Description of the Prototype`).
+* **`cityvethub_erd.png` & `cityvethub_erd.svg`**: Complete 27-table pure ERD assets generated from live Appwrite schema (`full_schema.md`) with Crow's Foot cardinalities, parallel routing channels, expanded column gaps (180px), vertical table gaps (60px), zero collinear overlaps, and zero text/cardinality collisions. Accompanied by interactive pan/zoom viewer `erd_viewer.html`.
 
 ---
 
