@@ -90,6 +90,10 @@
 * **`matching.js`**: Adoption notification and preference matching engine.
 * **`../cityvethub-operations.tar.gz`**: Manual Appwrite Console deployment archive. Appwrite MCP API key lacks `functions.write` scope, so always rebuild `functions/cityvethub-operations.tar.gz` (`tar -czf functions/cityvethub-operations.tar.gz -C functions/cityvethub-operations index.js community.js matching.js package.json`) whenever modifying backend function code so the user can upload it directly.
 
+### 6. Thesis Documentation (`Thesis Paper files/`)
+* **`Thesis - Abdulgani,Lucasan (1) (3).docx`**: Main thesis manuscript (Book Antiqua 12pt, double-spaced justified prose, `Figure X.Y` captions centered below screenshots; Chapter 4 contains Pet Owner Figures `4.1`–`4.9` followed by Administrator Figures `4.10`–`4.20`).
+* **`Pet Owner/` & `Admin/`**: Web application screenshots organized by user role for Chapter 4 (`Description of the Prototype`).
+
 ---
 
 ## Design & UI Constraints (Strict)

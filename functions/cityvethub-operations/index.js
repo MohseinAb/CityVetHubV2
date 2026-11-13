@@ -213,6 +213,71 @@ export default async ({req,res,log,error})=>{
       }
       return rows;
     }
+    const userCache=new Map();
+    async function getUserDoc(uid){
+      if(!uid)return null;
+      const key=String(uid);
+      if(userCache.has(key))return userCache.get(key);
+      let found=null;
+      try{found=await api('GET','/users/'+idPart(key));}catch(e){if(e.status!==404)throw e;}
+      userCache.set(key,found);
+      return found;
+    }
+    async function sendPushToUsers(targetUserIds,{title,body,data={},allowSelf=false}={}){
+      try{
+        if(process.env.CITYVET_ENABLE_PUSH!=='true')return {sent:false,reason:'disabled'};
+        const candidates=[...new Set((Array.isArray(targetUserIds)?targetUserIds:[]).map(id=>String(id||'').trim()).filter(id=>id&&(allowSelf||id!==user.$id)))];
+        if(!candidates.length)return {sent:false,reason:'no_eligible_users'};
+        const eligibleIds=[];
+        for(const uid of candidates){
+          const u=await getUserDoc(uid).catch(()=>null);
+          if(u&&u.status!==false&&u.prefs?.pushNotificationsEnabled!==false)eligibleIds.push(uid);
+        }
+        if(!eligibleIds.length)return {sent:false,reason:'no_eligible_users'};
+        const cleanData=Object.fromEntries(Object.entries(data||{}).map(([k,v])=>[k,String(v??'')]));
+        await api('POST','/messaging/messages/push',{
+          messageId:'unique()',
+          title:String(title||'CityVetHub').slice(0,120),
+          body:String(body||'').slice(0,240),
+          users:eligibleIds,
+          data:cleanData
+        });
+        return {sent:true,count:eligibleIds.length};
+      }catch(err){
+        log?.('Push dispatch warning: '+String(err?.message||err).slice(0,160));
+        return {sent:false,reason:'error'};
+      }
+    }
+    let officerUserIdsCache=null;
+    async function getOfficerUserIds(){
+      if(officerUserIdsCache)return officerUserIdsCache;
+      try{
+        const res=await api('GET','/teams/'+OFFICERS+'/memberships?limit=100');
+        officerUserIdsCache=[...new Set((res.memberships||[]).filter(m=>m.confirm!==false&&m.userId).map(m=>m.userId))];
+      }catch{
+        officerUserIdsCache=[];
+      }
+      return officerUserIdsCache;
+    }
+    async function getOwnerIdsForBarangay(barangay){
+      try{
+        const rows=await allTableRows(T.profiles,5);
+        const norm=String(barangay||'').trim().toLowerCase();
+        const isAll=!norm||norm==='all'||norm==='citywide';
+        const matched=[];
+        for(const p of rows){
+          const uid=p.userId||p.$id;
+          if(!uid)continue;
+          if(isAll||String(p.barangay||'').trim().toLowerCase()===norm){
+            matched.push(uid);
+            if(matched.length>=100)break;
+          }
+        }
+        return [...new Set(matched)].slice(0,100);
+      }catch{
+        return [];
+      }
+    }
     async function adoptionMatchAlerts(listing){
       // Never fail a valid adoption publication because notification delivery is unavailable.
       try{
@@ -226,17 +291,15 @@ export default async ({req,res,log,error})=>{
             created=true;
           }catch(err){if(err.status!==409)throw err;}
           if(created&&pref.pushEnabled&&process.env.CITYVET_ENABLE_PUSH==='true'){
-            try{
-              await api('POST','/messaging/messages/push',{messageId:'unique()',title:'A pet matches your adoption preferences',body:`${listing.title} is available for adoption in ${listing.barangay||'Iligan City'}.`,users:[pref.ownerId],data:{type:'adoption_match',listingId:listing.$id}});
-              await update(T.matchNotifications,id,{pushStatus:'sent'});
-            }catch(err){log?.('Pet match push pending for '+pref.ownerId+': '+String(err.message||err).slice(0,150));await update(T.matchNotifications,id,{pushStatus:'failed'}).catch(()=>{});}
+            const pushRes=await sendPushToUsers([pref.ownerId],{title:'A pet matches your adoption preferences',body:`${listing.title} is available for adoption in ${listing.barangay||'Iligan City'}.`,data:{type:'adoption_match',listingId:listing.$id},allowSelf:false});
+            await update(T.matchNotifications,id,{pushStatus:pushRes.sent?'sent':'failed'}).catch(()=>{});
           }
         }
       }catch(err){log?.('Adoption matching notification problem: '+String(err.message||err).slice(0,170));}
     }
     if(!admin&&!officer&&!owner&&!['ping','blockPendingOfficer'].includes(action))verify(403,false,'Field Officer access pending CVO approval.');
     if(typeof action==='string'&&action.startsWith('community')){
-      result=await runCommunity({action,data,user,admin,officer,owner,api});
+      result=await runCommunity({action,data,user,admin,officer,owner,api,sendPushToUsers,getOfficerUserIds,getOwnerIdsForBarangay});
       return res.json({ok:true,data:result});
     }
     switch(action){
@@ -362,7 +425,9 @@ export default async ({req,res,log,error})=>{
         stage='review-account:save-request';
         await update(T.ownerVerifications,request.$id,{status,reviewNote:optText(data.reviewNote,500),reviewedById:user.$id});
         stage='review-account:save-badge';
-        result=await update(T.profiles,existing.$id,{accountVerificationStatus:status==='approved'?'verified':'rejected'});break;
+        result=await update(T.profiles,existing.$id,{accountVerificationStatus:status==='approved'?'verified':'rejected'});
+        await sendPushToUsers([request.ownerId],{title:status==='approved'?'CVO Account Verified!':'Account ID Verification Update',body:status==='approved'?'Your government ID was verified by the City Veterinary Office.':(optText(data.reviewNote,180)||'Your ID verification request needs attention in My Profile.'),data:{type:'verification',requestId:request.$id}});
+        break;
       }
       case 'saveProfile':{
         const fullName=requireText(cleanName(data.fullName),128),phone=optText(data.phone,40),address=optText(data.address,200),barangay=cityBarangay(data.barangay,true);
@@ -526,7 +591,9 @@ export default async ({req,res,log,error})=>{
           stage='reviewPet:update-public-passport';await syncPassport(changed,source.ownerName);
           if(source.$id!==petProfile.$id)try{await remove(T.passports,source.$id);}catch(e){if(e.status!==404)log?.('Legacy passport cleanup: '+e.message);}
         }
-        stage='reviewPet:finalize-request';result=await update(T.req,source.$id,{reviewStatus:status});break;
+        stage='reviewPet:finalize-request';result=await update(T.req,source.$id,{reviewStatus:status});
+        await sendPushToUsers([source.ownerId],{title:status==='approved'?`${source.petName} is CVO Verified!`:`Verification Update for ${source.petName}`,body:status==='approved'?`Assigned Official Registry ID: ${registryId}.`:'Your pet verification request was not approved. Check My Pets for details.',data:{type:'verification',petProfileId:source.petProfileId||source.$id}});
+        break;
       }
       case 'assignOfficialPetId':{
         verify(403,admin);
@@ -568,6 +635,9 @@ export default async ({req,res,log,error})=>{
             try{await update(T.passports,pet.petProfileId||pet.$id,vaxData);}catch(e){if(e.status!==404)log?.('Passport status sync failed: '+e.message);}
           }
         }
+        if(pet.ownerId){
+          await sendPushToUsers([pet.ownerId],{title:`New ${recordType} Recorded for ${pet.petName}`,body:`${data.medicineType} was recorded by CVO veterinary staff.`,data:{type:'medical',petId:pet.$id}});
+        }
         break;
       }
       case 'addPetHealthUpload':{
@@ -608,7 +678,10 @@ export default async ({req,res,log,error})=>{
         const latitude=Number(data.latitude),longitude=Number(data.longitude);
         verify(400,Number.isFinite(latitude)&&Number.isFinite(longitude)&&latitude>=4&&latitude<=22&&longitude>=116&&longitude<=127,'Provide valid Philippine coordinates');
         const photoFileId=optText(data.photoFileId,36);if(photoFileId){stage='incident:authorize-photo';await assertUploadedPhoto(photoFileId,user,true,true);}
-        result=await create(T.reports,'unique()',{photoFileId,reportedById:user.$id,reporterRole:admin?'admin':officer?'officer':'owner',diseaseType,barangay:cityBarangay(data.barangay),latitude,longitude,description:optText(data.description,1000),status:'pending',reportedAt:new Date().toISOString()},[roleUser(user.$id),roleAdmin,roleOfficer]);break;
+        result=await create(T.reports,'unique()',{photoFileId,reportedById:user.$id,reporterRole:admin?'admin':officer?'officer':'owner',diseaseType,barangay:cityBarangay(data.barangay),latitude,longitude,description:optText(data.description,1000),status:'pending',reportedAt:new Date().toISOString()},[roleUser(user.$id),roleAdmin,roleOfficer]);
+        const officerIds=await getOfficerUserIds();
+        await sendPushToUsers(officerIds,{title:`New Field Incident: ${diseaseType}`,body:`Reported in Brgy. ${result.barangay}. Tap to inspect in Surveillance.`,data:{type:'incident_report',reportId:result.$id}});
+        break;
       }
       case 'getIncidentReportDetails':{
         verify(403,admin||officer,'Only CVO staff may inspect other users’ incident reports.');
@@ -678,6 +751,11 @@ export default async ({req,res,log,error})=>{
         const issuedAt=new Date().toISOString();
         result=await create(T.alerts,'unique()',{title:'Declared outbreak — '+barangay,message,diseaseType,barangay,severity:'high',issuedById:user.$id,issuedAt,isActive:true,isOutbreak:true,notifyOwners},[roleAdmin,roleOfficer]);
         if(notifyOwners)await create(T.ownerAlerts,result.$id,{sourceAlertId:result.$id,title:result.title,message,diseaseType,barangay,severity:'high',issuedById:user.$id,issuedAt,isActive:true,isOutbreak:true},['read("users")']);
+        {
+          const officerIds=await getOfficerUserIds();
+          const ownerIds=notifyOwners?await getOwnerIdsForBarangay(result.barangay):[];
+          await sendPushToUsers([...officerIds,...ownerIds],{title:result.title,body:`Brgy. ${result.barangay} · ${result.diseaseType}: ${String(result.message).slice(0,140)}`,data:{type:result.isOutbreak?'outbreak':'advisory',alertId:result.$id,tab:'notices'}});
+        }
         break;
       }
       case 'publishAlert':{
@@ -686,6 +764,11 @@ export default async ({req,res,log,error})=>{
         const issuedAt=new Date().toISOString(),title=requireText(data.title,120),message=requireText(data.message,1500),diseaseType=requireText(data.diseaseType,60),barangay=cityBarangay(data.barangay),severity=accept(data.severity,['low','medium','high']);
         result=await create(T.alerts,'unique()',{title,message,diseaseType,barangay,severity,issuedById:user.$id,issuedAt,isActive:true,isOutbreak:false,notifyOwners},[roleAdmin,roleOfficer]);
         if(notifyOwners)await create(T.ownerAlerts,result.$id,{sourceAlertId:result.$id,title,message,diseaseType,barangay,severity,issuedById:user.$id,issuedAt,isActive:true,isOutbreak:false},['read("users")']);
+        {
+          const officerIds=await getOfficerUserIds();
+          const ownerIds=notifyOwners?await getOwnerIdsForBarangay(result.barangay):[];
+          await sendPushToUsers([...officerIds,...ownerIds],{title:result.title,body:`Brgy. ${result.barangay} · ${result.diseaseType}: ${String(result.message).slice(0,140)}`,data:{type:result.isOutbreak?'outbreak':'advisory',alertId:result.$id,tab:'notices'}});
+        }
         break;
       }
       case 'notifyPetOwners':{
@@ -694,7 +777,12 @@ export default async ({req,res,log,error})=>{
         try{result=await row(T.ownerAlerts,alert.$id);}catch(e){if(e.status!==404)throw e;
           result=await create(T.ownerAlerts,alert.$id,{sourceAlertId:alert.$id,title:alert.title,message:alert.message,diseaseType:alert.diseaseType,barangay:alert.barangay,severity:alert.severity,issuedById:alert.issuedById,issuedAt:alert.issuedAt,isActive:!!alert.isActive,isOutbreak:!!alert.isOutbreak},['read("users")']);
         }
-        await update(T.alerts,alert.$id,{notifyOwners:true});break;
+        await update(T.alerts,alert.$id,{notifyOwners:true});
+        {
+          const ownerIds=await getOwnerIdsForBarangay(alert.barangay);
+          await sendPushToUsers(ownerIds,{title:alert.title,body:`Brgy. ${alert.barangay} · ${alert.diseaseType}: ${String(alert.message).slice(0,140)}`,data:{type:alert.isOutbreak?'outbreak':'advisory',alertId:alert.$id,tab:'notices'}});
+        }
+        break;
       }
       case 'deactivateAlert':{
         verify(403,admin);const alertId=requireText(data.alertId,36);
@@ -768,7 +856,9 @@ export default async ({req,res,log,error})=>{
         const rowId='ap_'+createHash('sha256').update(listing.$id+':'+user.$id).digest('hex').slice(0,29);
         const listingPet=listing.petProfileId?await row(T.inventory,listing.petProfileId).catch(e=>e.status===404?null:Promise.reject(e)):null;
         const officialPet=listingPet?null:await row(T.pets,listing.petId).catch(e=>e.status===404?null:Promise.reject(e));
-        result=await create(T.applications,rowId,{listingId:listing.$id,petId:listing.petId,petProfileIdSnapshot:listing.petProfileId||officialPet?.petProfileId||'',petNameSnapshot:(listingPet?.petName||officialPet?.petName||'').slice(0,100),listingTitleSnapshot:listing.title||'',applicantId:user.$id,applicantName:user.name||user.email,message:requireText(data.message,1000),contactNumber:phone,status:'pending',submittedAt:new Date().toISOString()},[roleAdmin,roleUser(user.$id)]);break;
+        result=await create(T.applications,rowId,{listingId:listing.$id,petId:listing.petId,petProfileIdSnapshot:listing.petProfileId||officialPet?.petProfileId||'',petNameSnapshot:(listingPet?.petName||officialPet?.petName||'').slice(0,100),listingTitleSnapshot:listing.title||'',applicantId:user.$id,applicantName:user.name||user.email,message:requireText(data.message,1000),contactNumber:phone,status:'pending',submittedAt:new Date().toISOString()},[roleAdmin,roleUser(user.$id)]);
+        await sendPushToUsers([listing.postedById],{title:'New Adoption Request',body:`${user.name||'A Pet Owner'} applied to adopt ${listing.title||listingPet?.petName||'your pet'}.`,data:{type:'application',listingId:listing.$id,applicationId:result.$id}});
+        break;
       }
       case 'resolveAdoptionApplicationNames':{
         verify(403,owner||admin,'Only Pet Owners and Administrators can view their adoption history.');
@@ -913,6 +1003,7 @@ export default async ({req,res,log,error})=>{
         }else{
           result=await update(T.applications,application.$id,{status:'rejected'});
         }
+        await sendPushToUsers([application.applicantId],{title:decision==='approve'?'Adoption Application Approved!':'Adoption Application Update',body:`Your application for ${listing.title||pet?.petName||'the pet'} was ${decision==='approve'?'approved by the owner':'declined'}.`,data:{type:'application',listingId:listing.$id,applicationId:application.$id}});
         break;
       }
       case 'decideAdoption':{
@@ -950,14 +1041,20 @@ export default async ({req,res,log,error})=>{
         // failure leaves it safely hidden and not reopenable.
         await update(T.applications,application.$id,{status:'completed'},[roleAdmin,roleUser(newOwner.$id),roleUser(oldOwnerId)]);
         // Do not leave losing applicants waiting for a pet already adopted.
+        const rejectedApplicantIds=[];
         try{
           const otherApplications=await api('GET',path(T.applications)+'?limit=100&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'equal',attribute:'listingId',values:[listing.$id]})));
           for(const other of otherApplications.rows||[]){
             if(other.$id!==application.$id&&other.listingId===listing.$id&&['pending','owner_approved','approved'].includes(other.status)){
               await update(T.applications,other.$id,{status:'rejected'});
+              if(other.applicantId)rejectedApplicantIds.push(other.applicantId);
             }
           }
         }catch(otherError){log?.('Could not close losing adoption applications: HTTP '+(otherError.status||'network'));}
+        await sendPushToUsers([newOwner.$id],{title:'Ownership Transfer Complete!',body:`${currentPet.petName||official?.petName||'Your adopted pet'} is now officially registered to your CityVetHub account.`,data:{type:'ownership',petId,petProfileId:listing.petProfileId}});
+        if(rejectedApplicantIds.length){
+          await sendPushToUsers(rejectedApplicantIds,{title:'Adoption Listing Closed',body:`${currentPet.petName||listing.title||'The pet'} has been adopted by another applicant.`,data:{type:'application',listingId:listing.$id}});
+        }
         await update(T.listings,listing.$id,{status:'adopted',isActive:false},[roleAdmin]);
         let listingDeleted=false;
         try{await remove(T.listings,listing.$id);listingDeleted=true;}
@@ -975,7 +1072,9 @@ export default async ({req,res,log,error})=>{
         const type=accept(data.transferType,['Reclaim','Surrender','Correction']);
         await create(T.history,'unique()',{petId:pet.$id,petName:optText(pet.petName||'',100),previousOwnerId:pet.ownerId,newOwnerId:newOwner.$id,previousOwnerName:pet.ownerName||pet.ownerId,newOwnerName:newOwner.name||newOwner.email,transferType:type,transferDate:new Date().toISOString()},[roleAdmin,roleUser(newOwner.$id),roleUser(pet.ownerId)]);
         result=await update(T.pets,pet.$id,{ownerId:newOwner.$id,ownerName:newOwner.name||newOwner.email,sharePublicAddress:false,shareContact:false,shareOwnerName:false,emergencyContact:'',homeAddress:'',lostFoundMessage:'If found, please contact the current owner through CityVetHub.'},[roleAdmin,roleOfficer,roleUser(newOwner.$id)]);
-        await updateOwnershipInventory(pet,newOwner);break;
+        await updateOwnershipInventory(pet,newOwner);
+        await sendPushToUsers([newOwner.$id],{title:`Pet Ownership ${type}`,body:`${pet.petName||'A pet'} has been transferred to your CityVetHub account (${type}).`,data:{type:'ownership',petId:pet.$id}});
+        break;
       }
       case 'resolveReporterRoles':{
         verify(403,admin||officer,'Staff access required');

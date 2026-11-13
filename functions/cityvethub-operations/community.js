@@ -18,7 +18,7 @@ const listPath=(table,filters=[],limit=100)=>tpath(table)+'?limit='+limit+filter
 const jsonArray=(s)=>{try{const x=JSON.parse(s||'[]');return Array.isArray(x)?x:[];}catch{return[];}};
 const shortRow=r=>({id:r.$id,...r});
 
-export async function runCommunity({action,data,user,admin,officer,owner,api}){
+export async function runCommunity({action,data,user,admin,officer,owner,api,sendPushToUsers,getOfficerUserIds,getOwnerIdsForBarangay}){
  const get=(table,rowId)=>api('GET',tpath(table,rowId));
  const create=(table,rowId,fields)=>api('POST',tpath(table),{rowId:rowId||'unique()',data:fields,permissions:[ADMIN]});
  const update=(table,rowId,fields)=>api('PATCH',tpath(table,rowId),{data:fields});
@@ -412,6 +412,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
      const m=await member(ch);yes(!m||m.status==='rejected','Your request is already pending or approved.',409);
      const payload={channelId:ch.$id,userId:user.$id,userName:user.name||'Member',status:'pending',requestedAt:new Date().toISOString()};
      if(m)await update(TABLES.members,m.$id,{...payload,reviewedAt:null});else await create(TABLES.members,membershipId(ch.$id,user.$id),payload);
+     if(sendPushToUsers)await sendPushToUsers([ch.createdById],{title:'Channel Membership Request',body:`${user.name||'A member'} requested to join private channel #${ch.name}.`,data:{type:'join_request',channelId:ch.$id,tab:'channels'}});
      return {status:'pending'};
    }
    case 'communityJoinRequests':{
@@ -422,7 +423,9 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
    case 'communityReviewJoin':{
      yes(owner||officer||admin,'Only channel owners or moderators may review requests.');const ch=await get(TABLES.channels,requireValue(data.channelId,36));yes(admin||owned(ch),'Only the creator can review join requests.');
      const m=await get(TABLES.members,requireValue(data.membershipId,36));yes(m.channelId===ch.$id&&m.status==='pending','Membership request not pending.',409);
-     const status=choice(data.status,['approved','rejected']);await update(TABLES.members,m.$id,{status,reviewedAt:new Date().toISOString()});return {status};
+     const status=choice(data.status,['approved','rejected']);await update(TABLES.members,m.$id,{status,reviewedAt:new Date().toISOString()});
+     if(sendPushToUsers)await sendPushToUsers([m.userId],{title:status==='approved'?'Channel Request Approved!':'Channel Request Declined',body:status==='approved'?`You now have access to #${ch.name}.`:`Your request to join #${ch.name} was declined.`,data:{type:'join_status',channelId:ch.$id,tab:'feed'}});
+     return {status};
    }
    case 'communityChannel':{
      const ch=await get(TABLES.channels,requireValue(data.channelId,36));yes(!ch.isArchived,'Channel is archived.',409);
@@ -452,12 +455,19 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
        ...chPosts.filter(p=>!p.isDeleted).map(p=>update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:`[ChannelDeleted:${user.$id}:${nowIso}]`}).catch(()=>{})),
        ...chComments.filter(c=>!c.isDeleted).map(c=>update(TABLES.comments,c.$id,{isDeleted:true,body:'[Removed]'}).catch(()=>{}))
      ]);
+     if(ch.createdById!==user.$id&&sendPushToUsers){
+       await sendPushToUsers([ch.createdById],{title:`Channel #${ch.name} was deleted by Admin`,body:`Your community channel "#${ch.name}" was removed by a CVO Administrator.`,data:{type:'channel_deleted',tab:'channels'}});
+     }
      return {deleted:true,channelId:ch.$id,deletedPosts:chPosts.filter(p=>!p.isDeleted).length};
    }
    case 'communityDeletePost':{
      const p=await get(TABLES.posts,requireValue(data.postId,36));yes(p.authorId===user.$id||admin,'Only the author or CVO may remove this discussion.');
      const nowIso=new Date().toISOString();
-     await update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:`[PostDeleted:${user.$id}:${nowIso}]`});return {deleted:true};
+     await update(TABLES.posts,p.$id,{isDeleted:true,imageFileIds:'[]',body:`[PostDeleted:${user.$id}:${nowIso}]`});
+     if(p.authorId!==user.$id&&sendPushToUsers){
+       await sendPushToUsers([p.authorId],{title:'Your discussion was deleted by Admin',body:`Your discussion "${p.title}" was removed by a CVO Administrator.`,data:{type:'post_deleted',channelId:p.channelId,tab:'feed'}});
+     }
+     return {deleted:true};
    }
    case 'communityComments':{
      const p=await get(TABLES.posts,requireValue(data.postId,36));const ch=await get(TABLES.channels,p.channelId);await assertVisible(ch);
@@ -467,10 +477,17 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
    case 'communityCreateComment':{
      await requireVerified();const p=await get(TABLES.posts,requireValue(data.postId,36));yes(!p.isDeleted,'This discussion is closed.',409);
      const ch=await get(TABLES.channels,p.channelId);await assertVisible(ch);
-     const parentId=optional(data.parentCommentId,36);if(parentId){const parent=await get(TABLES.comments,parentId);yes(parent.postId===p.$id&&!parent.isDeleted,'Invalid reply target.',400);}
+     const parentId=optional(data.parentCommentId,36);let parent=null;if(parentId){parent=await get(TABLES.comments,parentId);yes(parent.postId===p.$id&&!parent.isDeleted,'Invalid reply target.',400);}
      const baseName=user.name||'Member';
      const authorName=admin?`${baseName.slice(0,115)} [Admin]`:officer?`${baseName.slice(0,108)} [Field Officer]`:baseName;
-     const body=requireValue(data.body,2000,'Comment');const c=await create(TABLES.comments,'unique()',{channelId:ch.$id,postId:p.$id,parentCommentId:parentId,authorId:user.$id,authorName,body,isDeleted:false});return {id:c.$id};
+     const body=requireValue(data.body,2000,'Comment');const c=await create(TABLES.comments,'unique()',{channelId:ch.$id,postId:p.$id,parentCommentId:parentId,authorId:user.$id,authorName,body,isDeleted:false});
+     if(sendPushToUsers&&p.authorId!==user.$id){
+       await sendPushToUsers([p.authorId],{title:`${user.name||'A member'} commented on your discussion`,body:`On "${p.title}": "${body.slice(0,100)}"`,data:{type:'post_comment',channelId:ch.$id,postId:p.$id,tab:'feed'}});
+     }
+     if(sendPushToUsers&&parent&&parent.authorId!==user.$id&&parent.authorId!==p.authorId){
+       await sendPushToUsers([parent.authorId],{title:`${user.name||'A member'} replied to your comment`,body:`"${body.slice(0,100)}" in "${p.title}"`,data:{type:'comment_reply',channelId:ch.$id,postId:p.$id,tab:'feed'}});
+     }
+     return {id:c.$id};
    }
    case 'communityDeleteComment':{
      const c=await get(TABLES.comments,requireValue(data.commentId,36));yes(c.authorId===user.$id||admin,'Only the author or CVO may remove this comment.');await update(TABLES.comments,c.$id,{isDeleted:true,body:'[Removed]'});return {deleted:true};
@@ -482,6 +499,9 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
      const rowId=voteId(type,target.$id,user.$id);const existing=await getOrNull(TABLES.votes,rowId);let result=0;
      if(existing?.value===value){await remove(TABLES.votes,rowId);}else if(existing){await update(TABLES.votes,rowId,{value});result=value;}
      else{await create(TABLES.votes,rowId,{channelId:ch.$id,targetType:type,targetId:target.$id,userId:user.$id,value});result=value;}
+     if(result===1&&target.authorId!==user.$id&&sendPushToUsers){
+       await sendPushToUsers([target.authorId],{title:`New upvote on your ${type==='post'?'discussion':'comment'}`,body:`Someone upvoted your ${type==='post'?`discussion "${target.title}"`:'comment'} in #${ch.name}.`,data:{type:'like_'+type,channelId:ch.$id,postId:type==='post'?target.$id:target.postId,tab:'feed'}});
+     }
      return {myVote:result};
    }
    case 'communityImageToken':{
@@ -514,6 +534,11 @@ export async function runCommunity({action,data,user,admin,officer,owner,api}){
        if(/unknown attribute|invalid document structure|barangay/i.test(String(e?.message||''))){
          n=await create(TABLES.announcements,'unique()',{title,body:storedBody,audience,isActive:true,issuedById:user.$id,publishedAt});
        }else throw e;
+     }
+     if(sendPushToUsers){
+       const officerIds=(audience==='officers'||audience==='both')&&getOfficerUserIds?await getOfficerUserIds():[];
+       const ownerIds=(audience==='owners'||audience==='both')&&getOwnerIdsForBarangay?await getOwnerIdsForBarangay(barangay):[];
+       await sendPushToUsers([...officerIds,...ownerIds],{title:barangay?`CVO Announcement (${barangay}): ${title}`:`CVO Announcement: ${title}`,body:cleanBody.slice(0,160),data:{type:'announcement',tab:'notices'}});
      }
      return {id:n.$id,audience,barangay};
    }
