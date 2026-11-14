@@ -195,3 +195,4 @@
 /* Phase 4.18: visible diagnostics when external avatar tokens fail. */
 .COMM_AVATAR_DIAGNOSTIC{padding:9px 13px;margin:9px 13px 0;border:1px solid #f0c57f;background:#fff7e7;color:#8a5300;font-size:11px;line-height:1.45;border-radius:9px}
 .dark-theme .COMM_AVATAR_DIAGNOSTIC{background:#392d1c;border-color:#6e5425;color:#ffdc9d}
+.COMM_INVITE_RESULTS{max-height:190px;overflow-y:auto;margin-top:6px}

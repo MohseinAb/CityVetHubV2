@@ -36,8 +36,27 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
  const requireVerified=async()=>{yes(owner||officer||admin,'Sign in to participate in discussions.');if(owner)yes(await isVerified(),'CVO account verification is required before posting, creating channels, commenting, or voting.');};
  const member=async(ch,u=user.$id)=>getOrNull(TABLES.members,membershipId(ch.$id,u));
  const owned=ch=>ch.createdById===user.$id;
- const canAccess=async(ch)=>ch.privacy==='public'||admin||owned(ch)||(await member(ch))?.status==='approved';
- const assertVisible=async(ch)=>{yes(!ch.isArchived,'This channel is archived.',409);yes(await canAccess(ch),'Private channel: approval from its creator is required.',403);};
+ const canAccessWithMembership=(ch,m)=>{
+   if(!ch||ch.isArchived)return false;
+   if(ch.privacy==='public')return true;
+   if(ch.privacy==='staff')return Boolean(admin||officer);
+   if(ch.privacy==='invite')return Boolean(admin||owned(ch)||m?.status==='approved');
+   return Boolean(admin||owned(ch)||m?.status==='approved');
+ };
+ const isChannelListed=(ch,m)=>{
+   if(!ch||ch.isArchived)return false;
+   if(ch.privacy==='staff')return Boolean(admin||officer);
+   if(ch.privacy==='invite')return Boolean(admin||owned(ch)||m?.status==='approved');
+   return true;
+ };
+ const canAccess=async(ch)=>{
+   if(!ch||ch.isArchived)return false;
+   if(ch.privacy==='public')return true;
+   if(ch.privacy==='staff')return Boolean(admin||officer);
+   if(admin||owned(ch))return true;
+   return (await member(ch))?.status==='approved';
+ };
+ const assertVisible=async(ch)=>{yes(!ch.isArchived,'This channel is archived.',409);yes(await canAccess(ch),ch.privacy==='staff'?'This channel is restricted to Field Officers and Administrators.':ch.privacy==='invite'?'This hidden channel is by invitation only.':'Private channel: approval from its creator is required.',403);};
  const ensureUser=()=>yes(owner||officer||admin,'Sign in to continue.');
  let staffRoleCache=null;
  const getStaffRoles=async()=>{
@@ -81,8 +100,13 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    ]);
    const membershipByChannel=new Map(memberships.map(m=>[m.channelId,m]));
    const result=[];
-   for(const ch of channels){if(ch.isArchived)continue;const m=membershipByChannel.get(ch.$id);result.push({id:ch.$id,name:ch.name,description:ch.description,privacy:ch.privacy,createdByName:ch.createdByName,
-     isCreator:owned(ch),membership:m?.status||'none',canRead:ch.privacy==='public'||admin||owned(ch)||m?.status==='approved',createdAt:ch.$createdAt});}
+   for(const ch of channels){
+     if(ch.isArchived)continue;
+     const m=membershipByChannel.get(ch.$id);
+     if(!isChannelListed(ch,m))continue;
+     result.push({id:ch.$id,name:ch.name,description:ch.description,privacy:ch.privacy,createdByName:ch.createdByName,
+       isCreator:owned(ch),membership:m?.status||'none',canRead:canAccessWithMembership(ch,m),createdAt:ch.$createdAt});
+   }
    return result.sort((a,b)=>a.name.localeCompare(b.name));
  };
  const official=async()=>{
@@ -325,16 +349,19 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
          });
        }
        if(m.userId===user.$id&&!owned(ch)&&(m.status==='approved'||m.status==='rejected')){
-         items.push({
-           id:`comm_join_status_${m.$id}_${m.status}`,
-           category:'community',
-           kind:'join_status',
-           title:m.status==='approved'?'Channel request approved':'Channel request declined',
-           message:m.status==='approved'?`You now have access to private channel #${ch.name}.`:`Your request to join #${ch.name} was declined.`,
-           createdAt:m.reviewedAt||m.$updatedAt||m.$createdAt,
-           module:'community',
-           channelId:ch.$id
-         });
+         const isInvite=ch.privacy==='invite';
+         if(m.status==='approved'||ch.privacy==='private'){
+           items.push({
+             id:`comm_join_status_${m.$id}_${m.status}`,
+             category:'community',
+             kind:'join_status',
+             title:m.status==='approved'?(isInvite?'Added to hidden channel':'Channel request approved'):'Channel request declined',
+             message:m.status==='approved'?(isInvite?`You were invited to hidden channel #${ch.name}.`:`You now have access to private channel #${ch.name}.`):`Your request to join #${ch.name} was declined.`,
+             createdAt:m.reviewedAt||m.$updatedAt||m.$createdAt,
+             module:'community',
+             channelId:ch.$id
+           });
+         }
        }
      }
      // 4. Deleted channels & deleted discussions notifications for their creators
@@ -394,7 +421,8 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    }
    case 'communityCreateChannel':{
      await requireVerified();const name=requireValue(data.name,80,'Channel name'),description=optional(data.description,300);
-     const privacy=choice(data.privacy||'public',['public','private']);
+     const allowedPrivacy=admin?['public','private','staff','invite']:['public','private'];
+     const privacy=choice(data.privacy||'public',allowedPrivacy);
      const existing=await readList(TABLES.channels,[],100);yes(existing.filter(x=>x.createdById===user.$id&&!x.isArchived).length<10,'You may own up to 10 channels.',409);
      yes(!existing.some(x=>x.name.toLowerCase()===name.toLowerCase()&&!x.isArchived),'A channel with this name already exists.',409);
      const ch=await create(TABLES.channels,'unique()',{name,description,privacy,createdById:user.$id,createdByName:user.name||'Member',isArchived:false});
@@ -402,8 +430,73 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      return {id:ch.$id,name:ch.name};
    }
    case 'communitySetPrivacy':{
-     await requireVerified();const ch=await get(TABLES.channels,requireValue(data.channelId,36));yes(owned(ch),'Only the channel creator can change its visibility.');
-     const privacy=choice(data.privacy,['public','private']);await update(TABLES.channels,ch.$id,{privacy});return {privacy};
+     await requireVerified();const ch=await get(TABLES.channels,requireValue(data.channelId,36));yes(admin||owned(ch),'Only the channel creator or an Admin can change its visibility.');
+     const allowedPrivacy=admin?['public','private','staff','invite']:['public','private'];
+     const privacy=choice(data.privacy,allowedPrivacy);await update(TABLES.channels,ch.$id,{privacy});return {privacy};
+   }
+   case 'communityChannelMembers':{
+     ensureUser();
+     const ch=await get(TABLES.channels,requireValue(data.channelId,36));
+     yes(!ch.isArchived,'This channel is archived.',409);
+     yes(admin||owned(ch),'Only the channel creator or an Admin can manage channel members.');
+     const members=await readList(TABLES.members,[{attribute:'channelId',value:ch.$id}],100);
+     return {members:members.filter(x=>x.status==='approved').map(x=>({id:x.$id,userId:x.userId,userName:x.userName||'Member',isCreator:x.userId===ch.createdById,addedAt:x.reviewedAt||x.requestedAt||x.$createdAt}))};
+   }
+   case 'communitySearchUsers':{
+     ensureUser();
+     const ch=await get(TABLES.channels,requireValue(data.channelId,36));
+     yes(admin||owned(ch),'Only the channel creator or an Admin can search users to invite.');
+     const q=optional(data.query,80).toLowerCase();
+     const [profiles,roles,members]=await Promise.all([
+       readList('user_profiles',[],100),
+       getStaffRoles(),
+       readList(TABLES.members,[{attribute:'channelId',value:ch.$id}],100)
+     ]);
+     const existingIds=new Set(members.filter(m=>m.status==='approved').map(m=>m.userId));
+     const matches=profiles.filter(p=>{
+       const uid=p.userId||p.$id;
+       if(!uid||existingIds.has(uid)||uid===ch.createdById)return false;
+       if(!q)return true;
+       return [p.fullName,p.email,p.barangay].some(v=>String(v||'').toLowerCase().includes(q));
+     }).slice(0,20).map(p=>{
+       const uid=p.userId||p.$id;
+       return {userId:uid,fullName:p.fullName||p.email||'Member',barangay:p.barangay||'',role:roles.get(uid)||'owner'};
+     });
+     return {users:matches};
+   }
+   case 'communityInviteMember':{
+     ensureUser();
+     const ch=await get(TABLES.channels,requireValue(data.channelId,36));
+     yes(!ch.isArchived,'This channel is archived.',409);
+     yes(admin||owned(ch),'Only the channel creator or an Admin can invite members.');
+     yes(['invite','private'].includes(ch.privacy),'Invites are only available for invite-only or private channels.',409);
+     const targetId=requireValue(data.userId,36,'User ID');
+     let targetName=optional(data.userName,128);
+     if(!targetName){
+       const prof=await getOrNull('user_profiles',targetId);
+       targetName=prof?.fullName||prof?.email||'Member';
+       if(targetName==='Member'){try{const u=await api('GET','/users/'+id(targetId));targetName=u.name||u.email||'Member';}catch{}}
+     }
+     const now=new Date().toISOString();
+     const m=await member(ch,targetId);
+     if(m){await update(TABLES.members,m.$id,{userName:targetName,status:'approved',reviewedAt:now});}
+     else{await create(TABLES.members,membershipId(ch.$id,targetId),{channelId:ch.$id,userId:targetId,userName:targetName,status:'approved',requestedAt:now,reviewedAt:now});}
+     if(sendPushToUsers&&targetId!==user.$id){
+       await sendPushToUsers([targetId],{title:`Added to #${ch.name}`,body:`You were invited to hidden channel #${ch.name}.`,data:{type:'join_status',channelId:ch.$id,tab:'feed'}});
+     }
+     return {invited:true,userId:targetId,userName:targetName};
+   }
+   case 'communityRemoveMember':{
+     ensureUser();
+     const ch=await get(TABLES.channels,requireValue(data.channelId,36));
+     yes(!ch.isArchived,'This channel is archived.',409);
+     yes(admin||owned(ch),'Only the channel creator or an Admin can remove members.');
+     const targetId=requireValue(data.userId,36,'User ID');
+     yes(targetId!==ch.createdById,'The channel creator cannot be removed.',409);
+     const m=await member(ch,targetId);
+     yes(m,'Member not found in this channel.',404);
+     await remove(TABLES.members,m.$id);
+     return {removed:true,userId:targetId};
    }
    case 'communityRequestJoin':{
      yes(owner||officer,'Only Pet Owners or Field Officers can request community membership.');const ch=await get(TABLES.channels,requireValue(data.channelId,36));
@@ -429,7 +522,9 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    }
    case 'communityChannel':{
      const ch=await get(TABLES.channels,requireValue(data.channelId,36));yes(!ch.isArchived,'Channel is archived.',409);
-     const m=await member(ch);const canRead=ch.privacy==='public'||admin||owned(ch)||m?.status==='approved';
+     const m=await member(ch);
+     if(ch.privacy==='staff'||ch.privacy==='invite')yes(isChannelListed(ch,m),'This channel is hidden.',403);
+     const canRead=canAccessWithMembership(ch,m);
      return {channel:{id:ch.$id,name:ch.name,description:ch.description,privacy:ch.privacy,isCreator:owned(ch),membership:m?.status||'none',canRead},
        posts:canRead?await postsFor(ch):[],verified:await isVerified()};
    }

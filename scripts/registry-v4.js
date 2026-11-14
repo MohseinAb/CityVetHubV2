@@ -49,7 +49,7 @@ function mount({api,current}){
   select('Sex','sex',['Male','Female'],pet?.sex||'Male')+fld('Age in years','ageYears',pet?.ageYears??0,'number','min="0" max="40" required')+  
   `<label>Barangay<select name="barangay" required>${window.CityVetBarangays?.options(pet?.barangay||'')||`<option value="${H(pet?.barangay||'')}">${H(pet?.barangay||'Select barangay')}</option>`}</select></label>`+fld('Home address (private)','homeAddress',pet?.homeAddress,'text','maxlength="200"')+  
   fld('Emergency contact (private)','emergencyContact',pet?.emergencyContact,'tel','maxlength="60"')+  
-  select('Vital status','vitalStatus',['Alive', 'Deceased'],pet?.vitalStatus||'Alive')+
+  select('Vital status','vitalStatus',['Alive', 'Deceased', 'Missing'],pet?.vitalStatus||'Alive')+
   ancestrySelector(pet,pet?.species||'Dog')+
   txt('Pet description','profileDescription',pet?.profileDescription||'',1500)+txt('If found, please…','lostFoundMessage',pet?.lostFoundMessage||'',500)+  
   `<label class="P4_FORM_WIDE">Pet photo (JPG/PNG/WEBP, 5 MB)<input name="picture" type="file" accept="image/jpeg,image/png,image/webp"></label>`+  
@@ -125,6 +125,21 @@ function mount({api,current}){
   });
  }
 
+ const missingAction=pet=>pet?.vitalStatus==='Missing'
+   ?action('Mark as found','markFound',pet.$id,'fa-circle-check')
+   :(pet?.vitalStatus!=='Deceased'?action('Declare missing','declareMissing',pet.$id,'fa-triangle-exclamation'):'');
+ function toggleMissingForm(pet){
+   if(pet.vitalStatus==='Missing'){
+     return window.CityVetUI?.confirm({title:`Mark ${pet.petName} as found?`,description:'This clears the missing pet alert on the digital QR passport.',confirmLabel:'Mark as found',onConfirm:async()=>{await api.operate('setPetMissingStatus',{petProfileId:pet.$id,missing:false});await reload(true);notice(`${pet.petName} is no longer marked as missing.`);}});
+   }
+   modal(`Declare ${pet.petName} missing`,
+     `<p class="CV_HINT P4_FORM_WIDE">Anyone scanning ${H(pet.petName)}'s digital QR passport will see a missing pet alert at the top of the passport, and you will be notified when someone scans it.</p>`+
+     txt('Lost & found message (last seen, contact instructions)','lostFoundMessage',String(pet.lostFoundMessage||'').replace(/^\[MISSING\]\s*/i,''),480),
+     async f=>{
+       const d=Object.fromEntries(new FormData(f));
+       await api.operate('setPetMissingStatus',{petProfileId:pet.$id,missing:true,lostFoundMessage:d.lostFoundMessage});
+     },'Declare missing',`${pet.petName} has been declared missing.`);
+ }
  function detailsBody(pet){
   const ownEvidence=evidence.filter(x=>x.petProfileId===pet.$id);
   const official=approved.find(x=>x.petProfileId===pet.$id);
@@ -132,9 +147,9 @@ function mount({api,current}){
   const rows=ownEvidence.map(x=>{const parsed=splitExpiry(x.title,x.expiryDate);return `<div class="P46_HEALTH_ROW"><div><strong>${H(parsed.text)}</strong><small>${H(date(x.recordDate))}${parsed.expiryDate?` · Expires ${H(date(parsed.expiryDate))}`:''} · ${x.sharePublic?'Public (owner-supplied)':'Private'}</small></div><a href="${H(safeImage(x.fileId))}" target="_blank" rel="noopener">View image</a>${action('Remove','removeHealth',x.$id,'fa-trash')}</div>`;}).join('');
   const p1Name=pets.find(p=>p.$id===pet.ancestryParentId)?.petName||pet.ancestryParentName||'Unknown / Not listed';
   const p2Id=parent2IdOf(pet),p2Name=pets.find(p=>p.$id===p2Id)?.petName||parent2NameOf(pet)||'Unknown / Not listed';
-  return `<div class="P46_PET_SUMMARY P4_FORM_WIDE"><div class="P46_PET_DETAIL_IMAGE">${img(pet.photoFileId)}</div><div><h3>${H(pet.petName)}</h3>${status(pet.verificationStatus)}<p>${H(pet.species)} • ${H(pet.breed)} • ${H(pet.sex)} • ${H(pet.ageYears)} year(s)</p><p><i class="fa-solid fa-location-dot"></i> ${H(pet.barangay)}</p><p>${H(pet.profileDescription||'No description yet.')}</p></div></div>`+  
+  return `<div class="P46_PET_SUMMARY P4_FORM_WIDE"><div class="P46_PET_DETAIL_IMAGE">${img(pet.photoFileId)}</div><div><h3>${H(pet.petName)}</h3>${status(pet.verificationStatus)}${pet.vitalStatus==='Missing'?' <span class="P4_STATUS P4_STATUS_rejected"><i class="fa-solid fa-triangle-exclamation"></i> Missing</span>':''}<p>${H(pet.species)} • ${H(pet.breed)} • ${H(pet.sex)} • ${H(pet.ageYears)} year(s)</p><p><i class="fa-solid fa-location-dot"></i> ${H(pet.barangay)}</p><p>${H(pet.profileDescription||'No description yet.')}</p></div></div>`+  
   `<div class="P46_DETAIL_FIELDS P4_FORM_WIDE"><div><span>Status</span><strong>${H(pet.vitalStatus||'Alive')}</strong></div><div><span>Ancestry 1</span><strong>${H(p1Name)}</strong></div><div><span>Ancestry 2</span><strong>${H(p2Name)}</strong></div><div><span>Verification status</span><strong>${H(statuses[pet.verificationStatus]||'Draft')}</strong></div><div><span>Official CVO registry ID</span><strong>${H(pet.officialRegistryId||'Not assigned')}</strong></div><div><span>Home address · Private</span><strong>${H(pet.homeAddress||'Not provided')}</strong></div><div><span>Emergency contact · Private</span><strong>${H(pet.emergencyContact||'Not provided')}</strong></div><div class="P46_WIDE"><span>Lost & found</span><strong>${H(pet.lostFoundMessage||'If found, please contact CityVetHub.')}</strong></div></div>`+  
-  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Edit identity','edit',pet.$id,'fa-paw')}${action('Update details','details',pet.$id,'fa-pen-to-square')}${['draft','rejected'].includes(pet.verificationStatus)?action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+  
+  `<div class="P46_DETAIL_ACTIONS P4_FORM_WIDE">${action('QR Code','qr',pet.$id,'fa-qrcode',true)}${missingAction(pet)}${isAlreadyListed(pet.$id)?listedBadge():action('List for adoption','listAdoption',pet.$id,'fa-heart')}${action('Edit identity','edit',pet.$id,'fa-paw')}${action('Update details','details',pet.$id,'fa-pen-to-square')}${['draft','rejected'].includes(pet.verificationStatus)?action('Send for verification','verify',pet.$id,'fa-paper-plane')+action('Delete pet','deletePet',pet.$id,'fa-trash'):''}</div>`+  
   `<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><div class="P4_SECTION_HEADING"><h3>Health and vaccination documents</h3>${action('Add Medical Record','addHealth',pet.$id,'fa-plus',true)}</div><p>Owner-uploaded images are not official veterinary certification. Each shared document is visible to anyone with the QR link.</p>${rows||'<p class="CV_HINT">No personal health documents yet.</p>'}</div>`+  
   (clinical.length?`<div class="P46_MEDICAL_SECTION P4_FORM_WIDE"><h3>Veterinary records</h3>${clinical.map(c=>{const exp=splitExpiry(c.description,c.expiryDate).expiryDate;return `<p><b>${H(c.recordType)}:</b> ${H(c.medicineType)} · ${H(date(c.dateAdministered))}${exp?` · Expires ${H(date(exp))}`:''}</p>`;}).join('')}</div>`:'');
  }
@@ -157,7 +172,7 @@ function mount({api,current}){
   const visible=pets.filter(p=>[p.petName,p.breed,p.species,p.barangay].some(v=>String(v||'').toLowerCase().includes(term)));
   show('My Pets','Every pet has an immediate QR profile. CVO verification is an optional separate request.',action('Add a pet','add','','fa-plus',true)+action('Refresh','reload','','fa-rotate'),
     `<div class="P4_SUMMARY_GRID">${[['My pets',pets.length],['Drafts',pets.filter(p=>p.verificationStatus==='draft').length],['Awaiting verification',pets.filter(p=>p.verificationStatus==='pending').length],['Verified',pets.filter(p=>p.verificationStatus==='verified').length]].map(([n,v])=>`<div class="P4_SUMMARY"><span>${H(n)}</span><strong>${v}</strong></div>`).join('')}</div>`+
-    `<div class="P4_PET_GRID">${visible.length?visible.map(p=>`<article class="P4_PET_CARD P46_CLICK_CARD" role="button" tabindex="0" data-p46="open" data-id="${H(p.$id)}" data-species="${H(p.species||'')}" data-status="${H(statuses[p.verificationStatus]||p.verificationStatus||'Draft')}" data-barangay="${H(p.barangay||'Unspecified')}" aria-label="Open ${H(p.petName)}'s profile"><div class="P4_PET_MEDIA">${img(p.photoFileId)}<div class="P4_FLOAT_BADGE">${status(p.verificationStatus)}</div></div><div class="P4_PET_COPY"><h3>${H(p.petName)}</h3><p>${H(p.profileTitle||p.species+' · '+p.breed)}</p><div class="P4_PET_FACTS"><span class="P4_PET_FACT">${H(p.species)}</span><span class="P4_PET_FACT">${H(p.breed)}</span><span class="P4_PET_FACT">${H(p.ageYears)} yr</span></div><p class="P4_PET_BARANGAY"><i class="fa-solid fa-location-dot"></i> ${H(p.barangay)}</p><div class="P4_PET_ACTIONS">${action('View profile','open',p.$id,'fa-eye',true)}${action('QR code','qr',p.$id,'fa-qrcode')}${isAlreadyListed(p.$id)?listedBadge():action('List for adoption','listAdoption',p.$id,'fa-heart')}${['draft','rejected'].includes(p.verificationStatus)?action('Send request','verify',p.$id,'fa-paper-plane'):''}</div></div></article>`).join(''):'<div class="P4_EMPTY_PETS"><h3>No pets yet</h3><p>Add a pet to generate its personal QR link immediately.</p></div>'}</div>`+
+    `<div class="P4_PET_GRID">${visible.length?visible.map(p=>`<article class="P4_PET_CARD P46_CLICK_CARD" role="button" tabindex="0" data-p46="open" data-id="${H(p.$id)}" data-species="${H(p.species||'')}" data-status="${H(statuses[p.verificationStatus]||p.verificationStatus||'Draft')}" data-barangay="${H(p.barangay||'Unspecified')}" aria-label="Open ${H(p.petName)}'s profile"><div class="P4_PET_MEDIA">${img(p.photoFileId)}<div class="P4_FLOAT_BADGE">${status(p.verificationStatus)}${p.vitalStatus==='Missing'?' <span class="P4_STATUS P4_STATUS_rejected"><i class="fa-solid fa-triangle-exclamation"></i> Missing</span>':''}</div></div><div class="P4_PET_COPY"><h3>${H(p.petName)}</h3><p>${H(p.profileTitle||p.species+' · '+p.breed)}</p><div class="P4_PET_FACTS"><span class="P4_PET_FACT">${H(p.species)}</span><span class="P4_PET_FACT">${H(p.breed)}</span><span class="P4_PET_FACT">${H(p.ageYears)} yr</span></div><p class="P4_PET_BARANGAY"><i class="fa-solid fa-location-dot"></i> ${H(p.barangay)}</p><div class="P4_PET_ACTIONS">${action('View profile','open',p.$id,'fa-eye',true)}${action('QR code','qr',p.$id,'fa-qrcode')}${missingAction(p)}${isAlreadyListed(p.$id)?listedBadge():action('List for adoption','listAdoption',p.$id,'fa-heart')}${['draft','rejected'].includes(p.verificationStatus)?action('Send request','verify',p.$id,'fa-paper-plane'):''}</div></div></article>`).join(''):'<div class="P4_EMPTY_PETS"><h3>No pets yet</h3><p>Add a pet to generate its personal QR link immediately.</p></div>'}</div>`+
     '<p class="CV_HINT">QR profiles are public only through their link. Sharing medical images, contact numbers, owner name, and exact address is optional.</p>');
  }
  function staffPage(){
@@ -236,6 +251,7 @@ function mount({api,current}){
    if(cmd==='reload')return reload(true);if(cmd==='add'&&owner)return petForm();
    if(cmd==='open'&&owner&&pet)return details(pet);
    if(cmd==='qr'&&owner&&pet)return openQRCode(pet);
+   if((cmd==='declareMissing'||cmd==='markFound')&&owner&&pet)return toggleMissingForm(pet);
    if(cmd==='listAdoption'&&owner&&pet)return listForAdoption(pet);
    if(cmd==='edit'&&owner&&pet)return petForm(pet);
    if(cmd==='details'&&owner&&pet)return detailsForm(pet);
@@ -256,6 +272,7 @@ function mount({api,current}){
    if(cmd==='removeHealth'&&owner){return window.CityVetUI?.confirm({title:'Remove medical document?',description:'Remove this uploaded document from your pet profile?',confirmLabel:'Remove document',danger:true,onConfirm:async()=>{await api.operate('deletePetHealthUpload',{recordId:id});await reload(true);notice('Document removed.');}});}
    if(!pet||!owner)return;
    if(cmd==='qr')return openQRCode(pet);
+   if(cmd==='declareMissing'||cmd==='markFound')return toggleMissingForm(pet);
    if(cmd==='listAdoption')return listForAdoption(pet);
    if(cmd==='details')return detailsForm(pet);
    if(cmd==='edit')return petForm(pet);

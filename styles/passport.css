@@ -7,3 +7,8 @@
 .P46_PUBLIC_MEDICAL_ROW{display:grid;gap:8px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-top:14px}
 .P46_PUBLIC_MEDICAL_ROW>img{max-width:100%;max-height:360px;object-fit:contain;border-radius:8px}
 .P46_PUBLIC_MEDICAL_ROW small{font-size:11px;color:#64748b}
+.PASSPORT_MISSING_ALERT{margin:24px 30px 0;padding:16px 20px;border-radius:14px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;display:flex;align-items:flex-start;gap:14px}
+.PASSPORT_MISSING_ALERT i{font-size:22px;color:#dc2626;margin-top:2px;flex-shrink:0}
+.PASSPORT_MISSING_ALERT strong{display:block;font-size:14px;letter-spacing:.3px;margin-bottom:4px;color:#7f1d1d}
+.PASSPORT_MISSING_ALERT p{margin:0;font-size:13px;line-height:1.55;color:#991b1b}
+@media(max-width:560px){.PASSPORT_MISSING_ALERT{margin:18px 18px 0;padding:14px 16px}}

@@ -652,18 +652,19 @@
             }
             const listingById=new Map(adoptionListings.map(l=>[l.$id,l]));
 
-            // 3. Adoption Match Preferences Notifications (Pet Owners)
+            // 3. Adoption Match Preferences & Missing Pet QR Scan Notifications (Pet Owners)
             for(const m of matchNotifs){
+                const isMissingScan=m.pushStatus==='missing_scan';
                 pushItem({
                     id:'match_notif_'+m.$id,
                     matchRowId:m.$id,
                     serverRead:Boolean(m.isRead),
-                    category:'adoptions',
-                    kind:'match',
-                    title:`Adoption Match: ${m.petName||m.title||'New companion'}`,
-                    message:m.message||`${m.title||'A new pet listing'} matches your adoption preferences.`,
+                    category:isMissingScan?'registry':'adoptions',
+                    kind:isMissingScan?'missing_scan':'match',
+                    title:isMissingScan?`Missing Pet QR Scanned: ${m.petName||'Your pet'}`:`Adoption Match: ${m.petName||m.title||'New companion'}`,
+                    message:isMissingScan?(m.title||`${m.petName||'Your missing pet'}'s QR passport was scanned.`):(m.message||`${m.title||'A new pet listing'} matches your adoption preferences.`),
                     createdAt:m.createdAt||m.$createdAt,
-                    module:'adoptions'
+                    module:isMissingScan?'registry':'adoptions'
                 });
             }
 

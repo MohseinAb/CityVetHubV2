@@ -99,10 +99,16 @@ export default async ({req,res,log,error})=>{
   }
   async function syncPassport(pet,ownerName){
     const passportId=pet.$id;
+    const isMissing=pet.vitalStatus==='Missing';
+    const cleanMsg=String(pet.lostFoundMessage||'').replace(/^\[MISSING\]\s*/i,'').trim();
+    const passportMsg=isMissing
+      ?`[MISSING] ${cleanMsg||'This pet has been declared missing by its owner. Please contact the owner or CityVetHub immediately.'}`.slice(0,500)
+      :cleanMsg;
     const payload={petId:pet.latestRequestId||pet.$id,petName:pet.petName,species:pet.species,breed:pet.breed,sex:pet.sex,ageYears:pet.ageYears,barangay:pet.barangay,
       ownerName:pet.shareOwnerName?String(ownerName||''):'',displayAddress:pet.sharePublicAddress?(pet.homeAddress||''):'',contact:pet.shareContact?(pet.emergencyContact||''):'',
-      lostFoundMessage:pet.lostFoundMessage||'',photoFileId:pet.sharePublicPhoto?(pet.photoFileId||''):'',vaccinationStatus:pet.vaccinationStatus||'Not recorded',
-      verificationStatus:pet.verificationStatus||'draft',officialRegistryId:pet.officialRegistryId||'',profileTitle:pet.profileTitle||'',profileDescription:pet.profileDescription||''};
+      lostFoundMessage:passportMsg,photoFileId:pet.sharePublicPhoto?(pet.photoFileId||''):'',vaccinationStatus:pet.vaccinationStatus||'Not recorded',
+      verificationStatus:pet.verificationStatus||'draft',officialRegistryId:pet.officialRegistryId||'',profileTitle:pet.profileTitle||'',profileDescription:pet.profileDescription||'',
+      vitalStatus:pet.vitalStatus||'Alive'};
     let exists;try{exists=await row(T.passports,passportId);}catch(e){if(e.status!==404)throw e;}
     if(exists)return await update(T.passports,passportId,payload);
     return await create(T.passports,passportId,payload,[rolePublic]);
@@ -511,6 +517,42 @@ export default async ({req,res,log,error})=>{
         result=await update(T.inventory,pet.$id,{...details,...ancestry});
         if(pet.photoFileId&&pet.sharePublicPhoto!==details.sharePublicPhoto)await setFilePublic(pet.photoFileId,details.sharePublicPhoto);
         await syncPassport(result,user.name||user.email);break;
+      }
+      case 'setPetMissingStatus':{
+        verify(403,owner,'Only Pet Owners can update missing status.');
+        const pet=await row(T.inventory,requireText(data.petProfileId,36));
+        verify(403,pet.ownerId===user.$id,'You can only update your own pets.');
+        const missing=Boolean(data.missing);
+        verify(409,!(missing&&pet.vitalStatus==='Deceased'),'A deceased pet cannot be declared missing.');
+        const cleanMsg=data.lostFoundMessage!==undefined
+          ?optText(String(data.lostFoundMessage).replace(/^\[MISSING\]\s*/i,''),480)
+          :String(pet.lostFoundMessage||'').replace(/^\[MISSING\]\s*/i,'').trim();
+        result=await update(T.inventory,pet.$id,{vitalStatus:missing?'Missing':'Alive',lostFoundMessage:cleanMsg});
+        if(pet.latestRequestId){try{await update(T.pets,pet.latestRequestId,{vitalStatus:result.vitalStatus});}catch{}}
+        await syncPassport(result,user.name||user.email);
+        break;
+      }
+      case 'reportMissingPetScan':{
+        verify(401,Boolean(user?.$id),'Sign in to report a QR scan.');
+        const petId=requireText(data.petProfileId,36);
+        const pet=await row(T.inventory,petId).catch(e=>e.status===404?null:Promise.reject(e));
+        if(!pet){result={notified:false,reason:'not_found'};break;}
+        if(pet.vitalStatus!=='Missing'){result={notified:false,reason:'not_missing'};break;}
+        if(pet.ownerId===user.$id){result={notified:false,reason:'self_scan'};break;}
+        const scannerProf=await row(T.profiles,user.$id).catch(()=>null);
+        const scannerName=optText(scannerProf?.fullName||user.name||data.scannerName||user.email||'A CityVetHub user',60);
+        const bucket=Math.floor(Date.now()/(5*60*1000));
+        const notifId='mscan_'+createHash('sha256').update(`${pet.$id}:${user.$id}:${bucket}`).digest('hex').slice(0,28);
+        const title=optText(`${pet.petName}'s QR was scanned by ${scannerName}`,150);
+        try{
+          await create(T.matchNotifications,notifId,{ownerId:pet.ownerId,listingId:pet.$id,petName:optText(pet.petName,100),title,createdAt:new Date().toISOString(),isRead:false,pushStatus:'missing_scan'},[roleAdmin,roleUser(pet.ownerId)]);
+        }catch(err){
+          if(err.status!==409)throw err;
+          result={notified:false,reason:'deduplicated'};break;
+        }
+        await sendPushToUsers([pet.ownerId],{title:`Missing Pet QR Scanned: ${pet.petName}`,body:`${scannerName} just scanned ${pet.petName}'s QR passport.`,data:{type:'missing_pet_scan',petProfileId:pet.$id}});
+        result={notified:true,petName:pet.petName,scannerName};
+        break;
       }
       case 'ensurePetPassport':{
         verify(403,owner||admin);const pet=await row(T.inventory,requireText(data.petProfileId,36));

@@ -5,12 +5,34 @@ const el=(tag,text,cls)=>{const e=document.createElement(tag);if(cls)e.className
 const fail=s=>body.replaceChildren(el('p',s,'PASSPORT_ERROR'));
 if(!id||!/^[a-zA-Z0-9._-]{1,36}$/.test(id))return fail('Invalid QR profile link. Ask the pet owner to share a new link.');
 try{
- const cfg=window.CITYVET_CONFIG,client=new Appwrite.Client().setEndpoint(cfg.endpoint).setProject(cfg.projectId),tables=new Appwrite.TablesDB(client),storage=new Appwrite.Storage(client);
+ const cfg=window.CITYVET_CONFIG,client=new Appwrite.Client().setEndpoint(cfg.endpoint).setProject(cfg.projectId),tables=new Appwrite.TablesDB(client),storage=new Appwrite.Storage(client),account=new Appwrite.Account(client),functions=new Appwrite.Functions(client);
+ let scanNotified=false;
+ async function notifyOwnerIfSignedIn(){
+  if(scanNotified)return;scanNotified=true;
+  try{
+   await account.get();
+   const jwtRes=await account.createJWT();
+   if(!jwtRes?.jwt)return;
+   await functions.createExecution({functionId:cfg.functions.operations,body:JSON.stringify({action:'reportMissingPetScan',petProfileId:id}),async:false,headers:{'X-Appwrite-User-JWT':jwtRes.jwt}});
+  }catch{}
+ }
  async function renderPassport(silent=false){
   try{
    const pet=await tables.getRow({databaseId:cfg.databaseId,tableId:cfg.tables.passports,rowId:id});
    const verified=pet.verificationStatus==='verified';
+   const rawNote=String(pet.lostFoundMessage||'');
+   const isMissing=pet.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(rawNote);
+   const cleanNote=rawNote.replace(/^\[MISSING\]\s*/i,'').trim();
    const frag=document.createDocumentFragment();
+   if(isMissing){
+    const alertBox=el('div','','PASSPORT_MISSING_ALERT');alertBox.setAttribute('role','alert');
+    const icon=el('i','','fa-solid fa-triangle-exclamation');
+    const copy=el('div','');
+    copy.append(el('strong','DECLARED MISSING PET'),el('p',cleanNote||'This pet has been declared missing by its owner. Please contact the owner or the City Veterinary Office immediately.'));
+    alertBox.append(icon,copy);
+    frag.append(alertBox);
+    notifyOwnerIfSignedIn();
+   }
    const top=el('div','','PASSPORT_TOP');
    if(pet.photoFileId){const img=document.createElement('img');img.alt='Pet photo shared by owner';img.src=String(storage.getFileView({bucketId:cfg.buckets.media,fileId:pet.photoFileId}));img.onerror=()=>img.replaceWith(el('div','Photo not available','PASSPORT_PLACEHOLDER'));top.append(img);}
    else{const holder=el('div','','PASSPORT_PLACEHOLDER');holder.append(el('i','','fa-solid fa-paw'));top.append(holder);}
@@ -22,7 +44,7 @@ try{
    if(pet.displayAddress)values.push(['Owner-shared address',pet.displayAddress]);
    if(pet.contact)values.push(['Owner-shared contact',pet.contact]);
    for(const [label,value] of values){const row=el('div','');row.append(el('span',label),el('strong',value));grid.append(row);}frag.append(grid);
-   const note=el('div','','PASSPORT_NOTE');note.append(el('strong','If found'),el('p',pet.lostFoundMessage||'Please contact CityVetHub or the local veterinary office.'));frag.append(note);
+   const note=el('div','','PASSPORT_NOTE');note.append(el('strong','If found'),el('p',cleanNote||'Please contact CityVetHub or the local veterinary office.'));frag.append(note);
    const medical=el('section','','P46_PUBLIC_MEDICAL');medical.append(el('h2','Owner-shared health documents'));
    const expl=el('p','These photos are supplied by the pet owner and are not automatically verified by a veterinarian.');medical.append(expl);
    try{
