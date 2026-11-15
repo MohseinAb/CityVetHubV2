@@ -436,19 +436,35 @@
        admin?action('createListing','CVO listing','fa-plus'):owner&&unlistedPets.length?action('listOwnPet','List my pet','fa-heart'):' ')+matchingPanel+
        `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Pets looking for a home</h3><span>${available.length} currently available</span></div><div class="CV_CARDS P47_ADOPTION_GRID" id="adoptionCards">${visible.length?visible.map(renderCard).join(''):blank('No pets are listed for adoption yet.')}</div></div>`+incomingTable+applicationTable+
        '<p class="CV_HINT">Transfer is recorded automatically when the current Pet Owner approves and confirms the selected adopter. The listing then disappears from public browsing. Original pet and medical record IDs remain unchanged.</p>');
-     function adoptForm(listing){
-       const formOverlay=modal(`Adoption application · ${listing.title}`,[
-         {key:'contactNumber',label:'Contact number',type:'tel',max:40,placeholder:'e.g. 09XXXXXXXXX'},
-         {key:'message',label:'Reason for adoption',type:'textarea',max:1000,placeholder:'Why would you like to adopt this pet?'}
-       ],async d=>{if(d.message.trim().length<10)throw Error('Please write at least 10 characters explaining your reason.');await execute('applyAdoption',{listingId:listing.$id,contactNumber:d.contactNumber,message:d.message});});
-       formOverlay.querySelector('[type=submit]').textContent='Submit application';
+     function adoptForm(listing,existingApp=null,isReapply=false){
+       const formOverlay=modal(`${isReapply?'Re-apply for adoption':'Adoption application'} · ${listing.title}`,[
+         {key:'contactNumber',label:'Contact number',type:'tel',max:40,value:existingApp?.contactNumber||'',placeholder:'e.g. 09XXXXXXXXX'},
+         {key:'message',label:isReapply?'Updated reason & living conditions (explain what changed)':'Reason for adoption',type:'textarea',max:1000,placeholder:'Why would you like to adopt this pet? Describe your home setup.'}
+       ],async d=>{
+         const msg=String(d.message||'').trim();
+         if(msg.length<10)throw Error('Please write at least 10 characters explaining your reason.');
+         if(isReapply&&existingApp?.message&&msg.toLowerCase()===String(existingApp.message).trim().toLowerCase()){
+           throw Error('Please update your application reason to explain what changed in your setup before re-applying.');
+         }
+         await execute('applyAdoption',{listingId:listing.$id,contactNumber:d.contactNumber,message:msg});
+       });
+       formOverlay.querySelector('[type=submit]').textContent=isReapply?'Re-submit application':'Submit application';
      }
      function preview(listing){
        const overlay=document.createElement('div');overlay.className='CV_MODAL P47_ADOPTION_MODAL';
        const isMine=listing.postedById===current.user.$id;
-       overlay.innerHTML=`<div class="CV_MODAL_CARD P4_DIALOG CV49_ADOPT_DIALOG" role="dialog" aria-modal="true"><div class="CV_MODAL_HEAD"><h3>${h(listing.title)}</h3><button type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div><div class="P47_ADOPT_DETAIL"><div class="CV49_ADOPT_PREVIEW">${image(listing.photoFileId||(isMine?myPetById.get(listing.petProfileId)?.photoFileId:''),'CV49_PREVIEW_PET')}<div><span class="P4_STATUS">${h(listing.verificationStatus==='verified'?'CVO verified':'Owner-listed · unverified')}</span><p>${h(listing.description)}</p><div class="CV49_LISTING_OWNER">${image(listing.ownerAvatarFileId,'CV49_OWNER_AVATAR','fa-user')}<span><small>Current listing owner</small><strong>${h(listing.ownerDisplayName||'Pet Owner')}</strong></span></div></div></div><div class="P47_ADOPT_FACTS"><span>${h(listing.species||'Pet')}</span><span>${h(listing.breed||'Breed unavailable')}</span><span>${h(listing.barangay||'Location unavailable')}</span></div><h4>Adoption requirements</h4><p>${h(listing.requirements||'Contact CVO for the next steps.')}</p><p>Housing requirement: ${h(listing.housingRequirement||'Any')}</p><div class="P4_FORM_FOOT">${owner&&!isMine&&listing.isActive&&listing.status==='available'?'<button class="PRIMARY_ACTION" type="button" id="p47ApplyNow">Apply to adopt</button>':''}</div></div></div>`;
+       const existingApp=(applications||[]).find(a=>a.listingId===listing.$id&&a.applicantId===current.user.$id);
+       const prevStatus=String(existingApp?.status||'').toLowerCase();
+       const isReapply=Boolean(existingApp&&['rejected','declined','cancelled'].includes(prevStatus));
+       const hasActiveApp=Boolean(existingApp&&!isReapply);
+       const footHtml=owner&&!isMine&&listing.isActive&&listing.status==='available'
+         ?(hasActiveApp
+           ?`<span class="P4_STATUS">${['approved','owner_approved'].includes(prevStatus)?'Application approved · coordinate handover':'Application pending owner review'}</span>`
+           :`<button class="PRIMARY_ACTION" type="button" id="p47ApplyNow">${isReapply?'Re-apply to adopt':'Apply to adopt'}</button>`)
+         :'';
+       overlay.innerHTML=`<div class="CV_MODAL_CARD P4_DIALOG CV49_ADOPT_DIALOG" role="dialog" aria-modal="true"><div class="CV_MODAL_HEAD"><h3>${h(listing.title)}</h3><button type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div><div class="P47_ADOPT_DETAIL"><div class="CV49_ADOPT_PREVIEW">${image(listing.photoFileId||(isMine?myPetById.get(listing.petProfileId)?.photoFileId:''),'CV49_PREVIEW_PET')}<div><span class="P4_STATUS">${h(listing.verificationStatus==='verified'?'CVO verified':'Owner-listed · unverified')}</span><p>${h(listing.description)}</p><div class="CV49_LISTING_OWNER">${image(listing.ownerAvatarFileId,'CV49_OWNER_AVATAR','fa-user')}<span><small>Current listing owner</small><strong>${h(listing.ownerDisplayName||'Pet Owner')}</strong></span></div></div></div><div class="P47_ADOPT_FACTS"><span>${h(listing.species||'Pet')}</span><span>${h(listing.breed||'Breed unavailable')}</span><span>${h(listing.barangay||'Location unavailable')}</span></div><h4>Adoption requirements</h4><p>${h(listing.requirements||'Contact CVO for the next steps.')}</p><p>Housing requirement: ${h(listing.housingRequirement||'Any')}</p>${isReapply?'<p class="CV_HINT">Your previous request was declined. Update your home setup details below to re-apply.</p>':''}<div class="P4_FORM_FOOT">${footHtml}</div></div></div>`;
        overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))overlay.remove();});
-       document.body.append(overlay);overlay.querySelector('#p47ApplyNow')?.addEventListener('click',()=>{overlay.remove();adoptForm(listing);});
+       document.body.append(overlay);overlay.querySelector('#p47ApplyNow')?.addEventListener('click',()=>{overlay.remove();adoptForm(listing,existingApp,isReapply);});
      }
      container.querySelector('#adoptionCards').addEventListener('click',e=>{const item=e.target.closest('[data-listing]');if(item&&!e.target.closest('[data-ctrl]')){const listing=listings.find(l=>l.$id===item.dataset.listing);if(listing)preview(listing);}});
      container.querySelector('#adoptionCards').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('[data-listing]')){const item=listings.find(l=>l.$id===e.target.dataset.listing);if(item)preview(item);}});

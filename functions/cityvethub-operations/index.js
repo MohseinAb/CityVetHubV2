@@ -1018,10 +1018,32 @@ export default async ({req,res,log,error})=>{
         verify(409,listing.isActive&&listing.status==='available','This pet is not available');
         verify(409,listing.postedById!==user.$id,'You cannot adopt your own pet.');
         const phone=requireText(data.contactNumber,40);verify(400,/^[+0-9 ()-]{7,40}$/.test(phone),'Enter a valid contact number.');
+        const reason=requireText(data.message,1000);verify(400,reason.length>=10,'Please write at least 10 characters explaining your reason and home setup.');
         const rowId='ap_'+createHash('sha256').update(listing.$id+':'+user.$id).digest('hex').slice(0,29);
+        const existing=await row(T.applications,rowId).catch(e=>e.status===404?null:Promise.reject(e));
         const listingPet=listing.petProfileId?await row(T.inventory,listing.petProfileId).catch(e=>e.status===404?null:Promise.reject(e)):null;
         const officialPet=listingPet?null:await row(T.pets,listing.petId).catch(e=>e.status===404?null:Promise.reject(e));
-        result=await create(T.applications,rowId,{listingId:listing.$id,petId:listing.petId,petProfileIdSnapshot:listing.petProfileId||officialPet?.petProfileId||'',petNameSnapshot:(listingPet?.petName||officialPet?.petName||'').slice(0,100),listingTitleSnapshot:listing.title||'',applicantId:user.$id,applicantName:user.name||user.email,message:requireText(data.message,1000),contactNumber:phone,status:'pending',submittedAt:new Date().toISOString()},[roleAdmin,roleUser(user.$id)]);
+        if(existing){
+          const prevStatus=String(existing.status||'').toLowerCase();
+          verify(409,prevStatus!=='pending','You already have a pending adoption application for this pet.');
+          verify(409,!['approved','owner_approved'].includes(prevStatus),'Your adoption application was already approved. Coordinate handover with the pet owner.');
+          verify(409,prevStatus!=='completed','This adoption has already been completed.');
+          verify(409,['rejected','declined','cancelled'].includes(prevStatus),'You have already submitted an adoption application for this pet.');
+          verify(400,reason.toLowerCase()!==String(existing.message||'').trim().toLowerCase(),'Please update your application reason to explain what changed in your setup before re-applying.');
+          result=await update(T.applications,existing.$id,{
+            petProfileIdSnapshot:listing.petProfileId||officialPet?.petProfileId||existing.petProfileIdSnapshot||'',
+            petNameSnapshot:(listingPet?.petName||officialPet?.petName||existing.petNameSnapshot||'').slice(0,100),
+            listingTitleSnapshot:listing.title||existing.listingTitleSnapshot||'',
+            applicantName:user.name||user.email,
+            message:reason,
+            contactNumber:phone,
+            status:'pending',
+            submittedAt:new Date().toISOString()
+          },[roleAdmin,roleUser(user.$id)]);
+          await sendPushToUsers([listing.postedById],{title:'Updated Adoption Request',body:`${user.name||'A Pet Owner'} re-applied to adopt ${listing.title||listingPet?.petName||'your pet'}.`,data:{type:'application',listingId:listing.$id,applicationId:result.$id}});
+          break;
+        }
+        result=await create(T.applications,rowId,{listingId:listing.$id,petId:listing.petId,petProfileIdSnapshot:listing.petProfileId||officialPet?.petProfileId||'',petNameSnapshot:(listingPet?.petName||officialPet?.petName||'').slice(0,100),listingTitleSnapshot:listing.title||'',applicantId:user.$id,applicantName:user.name||user.email,message:reason,contactNumber:phone,status:'pending',submittedAt:new Date().toISOString()},[roleAdmin,roleUser(user.$id)]);
         await sendPushToUsers([listing.postedById],{title:'New Adoption Request',body:`${user.name||'A Pet Owner'} applied to adopt ${listing.title||listingPet?.petName||'your pet'}.`,data:{type:'application',listingId:listing.$id,applicationId:result.$id}});
         break;
       }

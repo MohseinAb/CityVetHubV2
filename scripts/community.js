@@ -32,13 +32,20 @@
    ].filter(Boolean).join('\n');
   };
   const tagChipsHtml=mode=>myTagPets.length?`<div class="COMM_TAG_STRIP"><span>${fa('paw')} ${mode==='comment'?'Insert pet info:':'Tap to insert pet info card:'}</span><div class="COMM_TAG_CHIPS">${myTagPets.map(p=>`<button type="button" class="COMM_TAG_CHIP ${p.vitalStatus==='Missing'?'is-missing':''}" data-tag-pet="${H(p.$id)}" data-tag-mode="${mode}">${p.vitalStatus==='Missing'?'[MISSING] ':''}${H(p.petName||'Pet')}</button>`).join('')}</div></div>`:'';
-  const pickDraftChannel=preferred=>{
-   const ok=(overview?.channels||[]).filter(c=>c.canRead&&(preferred==='missing'?(c.postPolicy==='missing_pet'||c.canPost):c.canPost));
-   if(!ok.length)return null;
+  const pickDraftChannel=(preferred,allowMissingPolicy=false)=>{
+   const readable=(overview?.channels||[]).filter(c=>c.canRead);
+   if(!readable.length)return null;
    if(preferred==='missing'){
-    return ok.find(c=>c.postPolicy==='missing_pet')||ok.find(c=>/\b(missing|lost)\b/i.test(c.name||''))||ok.find(c=>/\bfound\b/i.test(c.name||''))||ok.find(c=>c.privacy==='public')||ok[0];
+    if(allowMissingPolicy){
+     const byPolicy=readable.find(c=>c.postPolicy==='missing_pet');
+     if(byPolicy)return byPolicy;
+    }
+    const writable=readable.filter(c=>c.canPost!==false);
+    const pool=writable.length?writable:readable;
+    return pool.find(c=>/\b(missing|lost)\b/i.test(c.name||''))||pool.find(c=>/\bfound\b/i.test(c.name||''))||pool.find(c=>c.privacy==='public')||pool[0];
    }
-   return ok.find(c=>c.privacy==='public')||ok[0];
+   const writable=readable.filter(c=>c.canPost!==false);
+   return writable.find(c=>c.privacy==='public')||writable[0]||null;
   };
   async function loadMyTagPets(){
    try{
@@ -452,7 +459,7 @@
      if(cur&&!canUseChoice(cur)){message(cur.postRestrictionReason||'You cannot publish new discussions in this channel.');return;}
    }
    if(fromFeed&&!choices.length){message('No postable community channels are available for your account.');return;}
-   const preferredCh=draft?.channelId?choices.find(c=>c.id===draft.channelId):pickDraftChannel(draft?.preferredChannelMatch);
+   const preferredCh=draft?.channelId?choices.find(c=>c.id===draft.channelId):pickDraftChannel(draft?.preferredChannelMatch,isMissingDraft);
    const defaultChId=(preferredCh&&canUseChoice(preferredCh)?preferredCh.id:choices[0]?.id)||'';
    const channelSelect=fromFeed?`<label>Post to community<select name="channelId" required>${choices.map(c=>`<option value="${H(c.id)}" ${c.id===defaultChId?'selected':''}>${H(c.name)}</option>`).join('')}</select></label>`:'';
    const attachPetPhotoOpt=draft?.imageFileId?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600"><input type="checkbox" name="includePetPhoto" checked style="width:16px;height:16px"> Attach registered pet photo automatically (when owned by your account)</label>`:'';
