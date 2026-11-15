@@ -521,6 +521,382 @@ function mount({api,current,container}){
   });
   setTimeout(()=>map?.invalidateSize(),130);
  }
+ function buildPdfFromCanvases(canvases){
+  if(!Array.isArray(canvases)||!canvases.length)throw Error('No report pages available for PDF export.');
+  const W_PT=595.28,H_PT=841.89,enc=new TextEncoder();
+  const strBytes=s=>enc.encode(s);
+  const dataUrlToJpgBytes=canvas=>{
+    const uri=canvas.toDataURL('image/jpeg',0.94);
+    const idx=uri.indexOf(',');
+    if(idx===-1||!uri.startsWith('data:image/jpeg'))throw Error('Failed to encode report page as JPEG.');
+    const raw=atob(uri.slice(idx+1)),bytes=new Uint8Array(raw.length);
+    for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+    return bytes;
+  };
+  const pagesData=canvases.map((c,i)=>({
+    w:c.width,h:c.height,jpg:dataUrlToJpgBytes(c),
+    pageId:3+i*3,contentId:4+i*3,imgId:5+i*3,name:`/Im${i}`
+  }));
+  const chunks=[],offsets=[];
+  let byteLen=0;
+  const pushBytes=b=>{chunks.push(b);byteLen+=b.length;};
+  const pushStr=s=>pushBytes(strBytes(s));
+  pushStr('%PDF-1.4\n');
+  pushBytes(new Uint8Array([0x25,0xE2,0xE3,0xCF,0xD3,0x0A]));
+  const addObj=(id,body)=>{
+    offsets[id]=byteLen;
+    pushStr(`${id} 0 obj\n`);
+    if(typeof body==='string')pushStr(body);else body();
+    pushStr('\nendobj\n');
+  };
+  addObj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  addObj(2,`<< /Type /Pages /Kids [${pagesData.map(p=>`${p.pageId} 0 R`).join(' ')}] /Count ${pagesData.length} >>`);
+  for(const p of pagesData){
+    addObj(p.pageId,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W_PT.toFixed(2)} ${H_PT.toFixed(2)}] /Resources << /XObject << ${p.name} ${p.imgId} 0 R >> >> /Contents ${p.contentId} 0 R >>`);
+    const streamCmd=`q\n${W_PT.toFixed(2)} 0 0 ${H_PT.toFixed(2)} 0 0 cm\n${p.name} Do\nQ\n`;
+    addObj(p.contentId,`<< /Length ${streamCmd.length} >>\nstream\n${streamCmd}endstream`);
+    addObj(p.imgId,()=>{
+      pushStr(`<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpg.length} >>\nstream\n`);
+      pushBytes(p.jpg);
+      pushStr('\nendstream');
+    });
+  }
+  const totalObjs=2+pagesData.length*3;
+  const xrefPos=byteLen;
+  let xref=`xref\n0 ${totalObjs+1}\n0000000000 65535 f \n`;
+  for(let id=1;id<=totalObjs;id++){
+    xref+=String(offsets[id]||0).padStart(10,'0')+' 00000 n \n';
+  }
+  xref+=`trailer\n<< /Size ${totalObjs+1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+  pushStr(xref);
+  return new Blob(chunks,{type:'application/pdf'});
+ }
+ function renderAdminReportCanvases(rpt){
+  const PW=595.28,PH=841.89,PX_W=1654,PX_H=2339,M=26,CW=PW-M*2;
+  const FONT="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+  const makePage=()=>{
+    const c=document.createElement('canvas');c.width=PX_W;c.height=PX_H;
+    const ctx=c.getContext('2d');ctx.scale(PX_W/PW,PX_H/PH);
+    ctx.fillStyle='#ffffff';ctx.fillRect(0,0,PW,PH);
+    return {canvas:c,ctx};
+  };
+  const rr=(ctx,x,y,w,h,r=8)=>{
+    const rad=Math.min(r,w/2,h/2);ctx.beginPath();
+    ctx.moveTo(x+rad,y);ctx.lineTo(x+w-rad,y);ctx.quadraticCurveTo(x+w,y,x+w,y+rad);
+    ctx.lineTo(x+w,y+h-rad);ctx.quadraticCurveTo(x+w,y+h,x+w-rad,y+h);
+    ctx.lineTo(x+rad,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-rad);
+    ctx.lineTo(x,y+rad);ctx.quadraticCurveTo(x,y,x+rad,y);ctx.closePath();
+  };
+  const card=(ctx,x,y,w,h,fill='#ffffff',stroke='#dce4f0',r=9)=>{
+    ctx.save();rr(ctx,x,y,w,h,r);
+    if(fill){ctx.fillStyle=fill;ctx.fill();}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=0.85;ctx.stroke();}
+    ctx.restore();
+  };
+  const fit=(ctx,s,maxW)=>{
+    const str=String(s??'');if(!maxW||ctx.measureText(str).width<=maxW)return str;
+    let lo=0,hi=str.length;
+    while(lo<hi){const mid=(lo+hi+1)>>1;if(ctx.measureText(str.slice(0,mid)+'…').width<=maxW)lo=mid;else hi=mid-1;}
+    return str.slice(0,lo)+'…';
+  };
+  const txt=(ctx,s,x,y,{size=9,weight=500,color='#0f172a',align='left',baseline='top',maxW=0}={})=>{
+    ctx.save();ctx.font=`${weight} ${size}px ${FONT}`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline=baseline;
+    ctx.fillText(maxW?fit(ctx,s,maxW):String(s??''),x,y);ctx.restore();
+  };
+  const pill=(ctx,x,y,label,bg='#eaf2ff',fg='#1d4ed8',border='',size=7.2)=>{
+    ctx.save();ctx.font=`700 ${size}px ${FONT}`;
+    const padX=7,h=size+7,w=ctx.measureText(label).width+padX*2;
+    card(ctx,x,y,w,h,bg,border||bg,99);
+    ctx.fillStyle=fg;ctx.textBaseline='middle';ctx.fillText(label,x+padX,y+h/2+0.3);
+    ctx.restore();return w;
+  };
+  const footer=(ctx,pageNum,totalPages)=>{
+    ctx.save();ctx.strokeStyle='#e2e8f0';ctx.lineWidth=0.75;ctx.beginPath();ctx.moveTo(M,PH-34);ctx.lineTo(PW-M,PH-34);ctx.stroke();ctx.restore();
+    txt(ctx,'CityVetHub • Iligan City Veterinary Office • Administrative & Surveillance Summary',M,PH-26,{size:7.4,weight:600,color:'#64748b'});
+    txt(ctx,`Page ${pageNum} of ${totalPages}`,PW-M,PH-26,{size:7.4,weight:700,color:'#334155',align:'right'});
+  };
+  const hBars=(ctx,x,y,w,rowH,items,maxVal,defaultColor='#3478f6')=>{
+    const peak=Math.max(1,maxVal,...items.map(it=>it.value));
+    items.forEach((it,idx)=>{
+      const ry=y+idx*rowH,labelW=Math.min(110,w*0.42),barX=x+labelW+8,valW=30,barW=Math.max(30,w-labelW-valW-16);
+      txt(ctx,it.label,x,ry+5,{size:8,weight:600,color:'#334155',maxW:labelW});
+      card(ctx,barX,ry+4.5,barW,9,'#edf2fa','',4.5);
+      const fillW=it.value>0?Math.max(6,(it.value/peak)*barW):0;
+      if(fillW>0)card(ctx,barX,ry+4.5,fillW,9,it.color||defaultColor,'',4.5);
+      txt(ctx,String(it.value),barX+barW+6,ry+4.5,{size:8,weight:700,color:'#0f172a'});
+    });
+  };
+  const p1=makePage(),c1=p1.ctx;
+  const grad=c1.createLinearGradient(M,22,PW-M,96);grad.addColorStop(0,'#1b45a8');grad.addColorStop(0.6,'#3478f6');grad.addColorStop(1,'#5a97ff');
+  rr(c1,M,22,CW,72,11);c1.fillStyle=grad;c1.fill();
+  pill(c1,M+16,32,'CITYVETHUB • ILIGAN CITY VETERINARY OFFICE','rgba(255,255,255,0.18)','#ffffff','',6.8);
+  txt(c1,'Administrative & Surveillance Summary Report',M+16,50,{size:15.2,weight:800,color:'#ffffff'});
+  txt(c1,'Executive summary of pet registration, clinical care, disease surveillance, and adoption workflows',M+16,71,{size:7.9,weight:500,color:'#e0ecff',maxW:345});
+  txt(c1,'GENERATED',PW-M-16,35,{size:6.8,weight:700,color:'#bfdbfe',align:'right'});
+  txt(c1,rpt.generatedAt,PW-M-16,46,{size:8.6,weight:700,color:'#ffffff',align:'right',maxW:160});
+  txt(c1,'PREPARED BY',PW-M-16,62,{size:6.8,weight:700,color:'#bfdbfe',align:'right'});
+  txt(c1,rpt.adminName||'CVO Administrator',PW-M-16,73,{size:8.2,weight:600,color:'#eff6ff',align:'right',maxW:160});
+
+  const kpis=[
+    {label:'Verified Pets',val:rpt.pets.length,sub:`${rpt.petProfiles.length} citizen inventory profiles`,bg:'#eff6ff',fg:'#2563eb',tag:'REG'},
+    {label:'Verification Queue',val:`${rpt.pendingReqs} pending`,sub:`${rpt.approvedReqs} approved · ${rpt.rejectedReqs} rejected`,bg:'#fff7ed',fg:'#c2410c',tag:'REQ'},
+    {label:'Vaccination Coverage',val:`${rpt.coverage}%`,sub:`${rpt.covered} of ${rpt.pets.length} pets · ${rpt.vaxCount} vax logs`,bg:'#ecfdf5',fg:'#047857',tag:'VAX'},
+    {label:'Active Incident Reports',val:rpt.activeReports.length,sub:`${rpt.confirmedReports} conf · ${rpt.unverifiedReports} unv · ${rpt.dismissedReports} dism`,bg:'#eef2ff',fg:'#4338ca',tag:'SURV'},
+    {label:'Confirmed Outbreaks',val:rpt.outbreakCount,sub:`${rpt.activeAlertsCount} active advisories issued`,bg:'#fef2f2',fg:'#b91c1c',tag:'OUTB'},
+    {label:'Adoption Requests',val:rpt.adoptionApplications.length,sub:`${rpt.activeListings} active listings · ${rpt.ownership.length} transfers`,bg:'#f0fdfa',fg:'#0f766e',tag:'ADPT'}
+  ];
+  const kGap=9,kW=(CW-kGap*2)/3,kH=55;
+  kpis.forEach((k,i)=>{
+    const col=i%3,row=Math.floor(i/3),kx=M+col*(kW+kGap),ky=104+row*(kH+8);
+    card(c1,kx,ky,kW,kH,'#ffffff','#dce4f0',9);
+    txt(c1,k.label,kx+11,ky+10,{size:7.9,weight:700,color:'#64748b',maxW:kW-58});
+    pill(c1,kx+kW-42,ky+8,k.tag,k.bg,k.fg,'',6.4);
+    txt(c1,String(k.val),kx+11,ky+23,{size:15.5,weight:800,color:'#0f172a',maxW:kW-22});
+    txt(c1,k.sub,kx+11,ky+41.5,{size:6.9,weight:500,color:'#64748b',maxW:kW-20});
+  });
+
+  const r1y=230,r1h=198,cGap=11,wLeft=306,wRight=CW-wLeft-cGap;
+  card(c1,M,r1y,wLeft,r1h,'#ffffff','#dce4f0',10);
+  txt(c1,'Pet Registration Trend (Last 6 Months)',M+14,r1y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c1,'Monthly citizen verification requests submitted',M+14,r1y+26,{size:7.5,weight:500,color:'#64748b'});
+  pill(c1,M+wLeft-76,r1y+12,`Total: ${rpt.petRequests.length}`,'#eff6ff','#1d4ed8','#bfdbfe',7.1);
+  {
+    const gx=M+32,gy=r1y+56,gw=wLeft-48,gh=114,vals=rpt.requestsByMonth.values,lbs=rpt.requestsByMonth.labels;
+    const peak=Math.max(4,...vals),steps=4;
+    for(let s=0;s<=steps;s++){
+      const sy=gy+gh-(s/steps)*gh,v=Math.round((s/steps)*peak);
+      c1.save();c1.strokeStyle=s===0?'#cbd5e1':'#eef2f7';c1.lineWidth=0.75;c1.beginPath();c1.moveTo(gx,sy);c1.lineTo(gx+gw,sy);c1.stroke();c1.restore();
+      txt(c1,String(v),gx-6,sy,{size:6.8,weight:600,color:'#94a3b8',align:'right',baseline:'middle'});
+    }
+    const maxVal=Math.max(...vals,1),slotW=gw/Math.max(1,lbs.length),bW=Math.min(26,slotW*0.56);
+    vals.forEach((v,i)=>{
+      const bx=gx+i*slotW+(slotW-bW)/2,bh=v>0?Math.max(4,(v/peak)*gh):0,by=gy+gh-bh;
+      if(bh>0)card(c1,bx,by,bW,bh,v===maxVal&&v>0?'#1d4ed8':'#3478f6','',4);
+      txt(c1,String(v),bx+bW/2,Math.max(gy-10,by-10),{size:7.6,weight:700,color:'#1e293b',align:'center'});
+      txt(c1,lbs[i],bx+bW/2,gy+gh+7,{size:7.5,weight:600,color:'#475569',align:'center'});
+    });
+  }
+
+  const rx=M+wLeft+cGap;
+  card(c1,rx,r1y,wRight,r1h,'#ffffff','#dce4f0',10);
+  txt(c1,'Species & Profile Breakdown',rx+14,r1y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c1,'Verified registry & inventory status',rx+14,r1y+26,{size:7.5,weight:500,color:'#64748b'});
+  {
+    const dogs=rpt.typeCount[0],cats=rpt.typeCount[1],tot=dogs+cats;
+    const cx=rx+56,cy=r1y+86,rOut=35,rIn=21;
+    if(!tot){
+      c1.save();c1.strokeStyle='#e2e8f0';c1.lineWidth=14;c1.beginPath();c1.arc(cx,cy,(rOut+rIn)/2,0,Math.PI*2);c1.stroke();c1.restore();
+    }else{
+      const slices=[{v:dogs,col:'#3478f6'},{v:cats,col:'#14b8a6'}];
+      let ang=-Math.PI/2;
+      for(const sl of slices){
+        if(!sl.v)continue;
+        const sweep=(sl.v/tot)*Math.PI*2;
+        c1.save();c1.fillStyle=sl.col;c1.beginPath();c1.moveTo(cx,cy);c1.arc(cx,cy,rOut,ang,ang+sweep);c1.closePath();c1.fill();c1.restore();
+        ang+=sweep;
+      }
+      c1.save();c1.fillStyle='#ffffff';c1.beginPath();c1.arc(cx,cy,rIn,0,Math.PI*2);c1.fill();c1.restore();
+    }
+    txt(c1,String(tot),cx,cy-1,{size:12,weight:800,color:'#0f172a',align:'center',baseline:'middle'});
+    txt(c1,'Verified',cx,cy+10,{size:6.2,weight:600,color:'#64748b',align:'center',baseline:'middle'});
+    const lx=rx+106,dogPct=tot?Math.round(dogs/tot*100):0,catPct=tot?100-dogPct:0;
+    card(c1,lx,r1y+63,8,8,'#3478f6','',2);
+    txt(c1,`Dogs: ${dogs} (${dogPct}%)`,lx+13,r1y+62.5,{size:8,weight:700,color:'#1e293b'});
+    card(c1,lx,r1y+81,8,8,'#14b8a6','',2);
+    txt(c1,`Cats: ${cats} (${catPct}%)`,lx+13,r1y+80.5,{size:8,weight:700,color:'#1e293b'});
+    txt(c1,'Unlisted/Other:',lx,r1y+99,{size:7.1,weight:500,color:'#64748b'});
+    txt(c1,`${Math.max(0,rpt.pets.length-tot)}`,lx+62,r1y+99,{size:7.1,weight:700,color:'#334155'});
+    const py=r1y+136;
+    txt(c1,'Citizen Inventory Profile Statuses',rx+14,py,{size:8,weight:700,color:'#334155'});
+    const pBarW=wRight-28,pStats=[
+      {l:'Verified',v:rpt.profVerified,c:'#10b981'},
+      {l:'Pending',v:rpt.profPending,c:'#f59e0b'},
+      {l:'Draft',v:rpt.profDraft,c:'#64748b'},
+      {l:'Rejected',v:rpt.profRejected,c:'#ef4444'}
+    ];
+    const pTot=pStats.reduce((a,b)=>a+b.v,0);
+    card(c1,rx+14,py+15,pBarW,9,'#edf2fa','',4.5);
+    let sx=rx+14;
+    if(pTot>0){
+      pStats.forEach(ps=>{
+        if(!ps.v)return;
+        const sw=(ps.v/pTot)*pBarW;
+        card(c1,sx,py+15,Math.max(3,sw),9,ps.c,'',2);sx+=sw;
+      });
+    }
+    pStats.forEach((ps,idx)=>{
+      const row=Math.floor(idx/2),col=idx%2,ix=rx+14+col*98,iy=py+30+row*14;
+      card(c1,ix,iy+2,6,6,ps.c,'',2);
+      txt(c1,`${ps.l}: ${ps.v}`,ix+10,iy,{size:7.2,weight:600,color:'#475569'});
+    });
+  }
+
+  const r2y=439,r2h=214,wHalf=(CW-cGap)/2;
+  card(c1,M,r2y,wHalf,r2h,'#ffffff','#dce4f0',10);
+  txt(c1,'Vaccination Coverage & Clinical Care',M+14,r2y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c1,'Verified pets with at least one vaccination entry',M+14,r2y+26,{size:7.5,weight:500,color:'#64748b'});
+  txt(c1,`${rpt.coverage}%`,M+wHalf-14,r2y+12,{size:16,weight:800,color:'#2563eb',align:'right'});
+  {
+    const pbX=M+14,pbY=r2y+45,pbW=wHalf-28;
+    card(c1,pbX,pbY,pbW,12,'#e2e8f0','',6);
+    if(rpt.coverage>0)card(c1,pbX,pbY,Math.max(8,pbW*(rpt.coverage/100)),12,'#3478f6','',6);
+    txt(c1,`Covered pets: ${rpt.covered}`,pbX,pbY+17,{size:7.5,weight:700,color:'#1e293b'});
+    txt(c1,`No sampled vax: ${Math.max(0,rpt.pets.length-rpt.covered)}`,pbX+pbW,pbY+17,{size:7.5,weight:600,color:'#64748b',align:'right'});
+    c1.save();c1.strokeStyle='#eef2f7';c1.lineWidth=0.8;c1.beginPath();c1.moveTo(pbX,r2y+82);c1.lineTo(pbX+pbW,r2y+82);c1.stroke();c1.restore();
+    txt(c1,'Clinical Activity Breakdown',pbX,r2y+91,{size:8.4,weight:700,color:'#334155'});
+    hBars(c1,pbX,r2y+108,pbW,22,[
+      {label:'Vaccinations',value:rpt.vaxCount,color:'#3478f6'},
+      {label:'Clinical Treatments',value:rpt.treatCount,color:'#7c3aed'},
+      {label:'Verified Pets Sample',value:rpt.pets.length,color:'#10b981'},
+      {label:'Total Medical Logs',value:rpt.medical.length,color:'#475569'}
+    ],1);
+  }
+
+  const r2rx=M+wHalf+cGap;
+  card(c1,r2rx,r2y,wHalf,r2h,'#ffffff','#dce4f0',10);
+  txt(c1,'Disease Distribution & Case Triage',r2rx+14,r2y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c1,'Confirmed cases & report verification triage',r2rx+14,r2y+26,{size:7.5,weight:500,color:'#64748b'});
+  pill(c1,r2rx+wHalf-76,r2y+12,`${rpt.diseaseIncidents.length} confirmed`,'#ecfdf5','#067647','#abefc6',7);
+  {
+    const dRows=rpt.diseaseList.slice(0,4);
+    hBars(c1,r2rx+14,r2y+48,wHalf-28,21,dRows.map((it,idx)=>({label:it[0],value:it[1],color:colors[idx%colors.length]})),1);
+    const ty=r2y+152,tw=(wHalf-36)/2;
+    txt(c1,'Incident Report Verification Status (All Sampled)',r2rx+14,ty-10,{size:7.6,weight:700,color:'#475569'});
+    [
+      {l:`Confirmed: ${rpt.confirmedReports}`,bg:'#ecfdf5',fg:'#067647',bd:'#abefc6'},
+      {l:`Unverified: ${rpt.unverifiedReports}`,bg:'#fff8eb',fg:'#9a5b00',bd:'#fde6b8'},
+      {l:`Dismissed: ${rpt.dismissedReports} (excluded)`,bg:'#f1f5f9',fg:'#475569',bd:'#cbd5e1'},
+      {l:`Archived: ${rpt.archivedReports}`,bg:'#f8fafc',fg:'#64748b',bd:'#e2e8f0'}
+    ].forEach((b,idx)=>{
+      const col=idx%2,row=Math.floor(idx/2),bx=r2rx+14+col*(tw+8),by=ty+row*22+3;
+      card(c1,bx,by,tw,18,b.bg,b.bd,6);
+      txt(c1,b.l,bx+7,by+5,{size:7.1,weight:700,color:b.fg,maxW:tw-12});
+    });
+  }
+
+  const r3y=664,r3h=124;
+  card(c1,M,r3y,CW,r3h,'#ffffff','#dce4f0',10);
+  txt(c1,'Adoption Pipeline & Ownership Custody Overview',M+14,r3y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c1,'Rehoming listings, applicant pipeline distribution, and verified custody transfers',M+14,r3y+26,{size:7.5,weight:500,color:'#64748b'});
+  {
+    const barX=M+14,barY=r3y+45,barW=CW-28;
+    const [apPend,apApp,apRej]=rpt.adopted,apTot=apPend+apApp+apRej;
+    card(c1,barX,barY,barW,11,'#edf2fa','',5.5);
+    let sx=barX;
+    if(apTot>0){
+      [[apPend,'#f59e0b'],[apApp,'#10b981'],[apRej,'#ef4444']].forEach(([v,col])=>{
+        if(!v)return;const sw=(v/apTot)*barW;card(c1,sx,barY,Math.max(4,sw),11,col,'',3);sx+=sw;
+      });
+    }
+    const boxes=[
+      {l:'Active Listings',v:rpt.activeListings,sub:`of ${rpt.adoptionListings.length} total`,c:'#2563eb'},
+      {l:'Pending Apps',v:apPend,sub:'awaiting review',c:'#d97706'},
+      {l:'Approved Apps',v:apApp,sub:'accepted matches',c:'#059669'},
+      {l:'Rejected Apps',v:apRej,sub:'declined requests',c:'#dc2626'},
+      {l:'Custody Transfers',v:rpt.ownership.length,sub:'audit trail logs',c:'#4f46e5'}
+    ];
+    const bw=(CW-28-32)/5;
+    boxes.forEach((b,idx)=>{
+      const bx=M+14+idx*(bw+8),by=r3y+65;
+      card(c1,bx,by,bw,46,'#f8fafc','#e2e8f0',7);
+      txt(c1,b.l,bx+9,by+8,{size:7.2,weight:700,color:'#64748b',maxW:bw-14});
+      txt(c1,String(b.v),bx+9,by+20,{size:14,weight:800,color:b.c});
+      txt(c1,b.sub,bx+9,by+36,{size:6.5,weight:500,color:'#64748b',maxW:bw-14});
+    });
+  }
+  footer(c1,1,2);
+
+  const p2=makePage(),c2=p2.ctx;
+  card(c2,M,22,CW,38,'#f1f6ff','#c8dcff',9);
+  txt(c2,'CITYVETHUB EXECUTIVE REPORT • SPATIAL SURVEILLANCE & DETAILED BREAKDOWN',M+14,32,{size:8.8,weight:800,color:'#1e40af'});
+  txt(c2,`Generated ${rpt.generatedAt}`,PW-M-14,33,{size:7.8,weight:600,color:'#3b82f6',align:'right'});
+
+  const s1y=70,s1h=205,bLeftW=272,bRightW=CW-bLeftW-11;
+  card(c2,M,s1y,bLeftW,s1h,'#ffffff','#dce4f0',10);
+  txt(c2,'Barangay Surveillance Concentration',M+14,s1y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c2,rpt.barangaysFromIncidents?'Top barangays with confirmed disease cases':'Active non-dismissed incident reports by barangay',M+14,s1y+26,{size:7.4,weight:500,color:'#64748b'});
+  {
+    const list=rpt.barangayBars.length?rpt.barangayBars:[['No incidents recorded',0]];
+    const items=list.slice(0,6).map(([name,cnt])=>{
+      const isOutbreak=rpt.outbreakBarangays.has(String(name||'').toLowerCase());
+      const col=isOutbreak||cnt>=11?'#dc2626':cnt>=3?'#f59e0b':cnt>=1?'#10b981':'#94a3b8';
+      return {label:isOutbreak?`${name} (OUTBREAK)`:name,value:cnt,color:col};
+    });
+    hBars(c2,M+14,s1y+47,bLeftW-28,23,items,1);
+    txt(c2,'CVO Thresholds: Green (1–2), Yellow (3–10), Red (11+ or Outbreak)',M+14,s1y+188,{size:6.8,weight:600,color:'#64748b'});
+  }
+
+  const srx=M+bLeftW+11;
+  card(c2,srx,s1y,bRightW,s1h,'#ffffff','#dce4f0',10);
+  txt(c2,'Outbreak Declarations & Active Alerts',srx+14,s1y+12,{size:10.5,weight:750,color:'#0f172a'});
+  txt(c2,'Published public-health advisories in the sample',srx+14,s1y+26,{size:7.4,weight:500,color:'#64748b'});
+  {
+    const activeAlerts=rpt.diseaseAlerts.filter(a=>a.isActive).slice(0,4);
+    if(!activeAlerts.length){
+      card(c2,srx+14,s1y+50,bRightW-28,64,'#ecfdf5','#abefc6',8);
+      txt(c2,'No active outbreaks or warnings in current sample',srx+26,s1y+70,{size:8.5,weight:700,color:'#067647'});
+      txt(c2,`Total historical declarations sampled: ${rpt.diseaseAlerts.length}`,srx+26,s1y+86,{size:7.4,weight:500,color:'#047857'});
+    }else{
+      activeAlerts.forEach((a,idx)=>{
+        const ay=s1y+46+idx*37,isOut=Boolean(a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'));
+        card(c2,srx+14,ay,bRightW-28,32,isOut?'#fef2f2':'#f8fafc',isOut?'#fecaca':'#e2e8f0',7);
+        txt(c2,`${a.barangay||'Citywide'} — ${a.diseaseType||a.title||'Health Alert'}`,srx+22,ay+6,{size:7.7,weight:700,color:isOut?'#991b1b':'#0f172a',maxW:bRightW-96});
+        pill(c2,srx+bRightW-68,ay+5,isOut?'OUTBREAK':'ALERT',isOut?'#fee2e2':'#eaf2ff',isOut?'#b91c1c':'#1d4ed8','',6);
+        txt(c2,`Issued ${D(a.issuedAt||a.$createdAt)} · ${a.notifyOwners?'Owners & Officers':'Officers only'}`,srx+22,ay+19,{size:6.7,weight:500,color:'#64748b',maxW:bRightW-46});
+      });
+    }
+  }
+
+  const t1y=285,t1h=246;
+  card(c2,M,t1y,CW,t1h,'#ffffff','#dce4f0',10);
+  txt(c2,'System Module Data Summary (First 100 Accessible Rows per Collection)',M+14,t1y+11,{size:10.3,weight:750,color:'#0f172a'});
+  {
+    const thY=t1y+31,rowH=19.2;
+    card(c2,M+12,thY,CW-24,20,'#eef4ff','#dbe7fb',5);
+    txt(c2,'Module / Collection',M+20,thY+6,{size:7.6,weight:800,color:'#1e3a8a'});
+    txt(c2,'Domain',M+198,thY+6,{size:7.6,weight:800,color:'#1e3a8a'});
+    txt(c2,'Sampled',M+336,thY+6,{size:7.6,weight:800,color:'#1e3a8a',align:'right'});
+    txt(c2,'Operational Breakdown',M+352,thY+6,{size:7.6,weight:800,color:'#1e3a8a'});
+    rpt.moduleRows.forEach((mr,idx)=>{
+      const ry=thY+21+idx*rowH;
+      if(idx%2===1)card(c2,M+12,ry,CW-24,rowH,'#f8fafc','',3);
+      txt(c2,mr[0],M+20,ry+5,{size:7.4,weight:700,color:'#0f172a',maxW:172});
+      txt(c2,mr[1],M+198,ry+5,{size:7.3,weight:500,color:'#475569',maxW:96});
+      txt(c2,String(mr[2]),M+336,ry+5,{size:7.6,weight:800,color:'#1d4ed8',align:'right'});
+      txt(c2,mr[3],M+352,ry+5,{size:7.2,weight:500,color:'#334155',maxW:170});
+    });
+  }
+
+  const t2y=541,t2h=205;
+  card(c2,M,t2y,CW,t2h,'#ffffff','#dce4f0',10);
+  txt(c2,'Recent Operational Activity',M+14,t2y+11,{size:10.3,weight:750,color:'#0f172a'});
+  txt(c2,'Latest timestamped events across registration, surveillance, adoptions, and custody',M+14,t2y+24,{size:7.3,weight:500,color:'#64748b'});
+  {
+    const thY=t2y+38,rowH=18.2;
+    card(c2,M+12,thY,CW-24,19,'#eef4ff','#dbe7fb',5);
+    txt(c2,'Event',M+20,thY+5.5,{size:7.5,weight:800,color:'#1e3a8a'});
+    txt(c2,'Details',M+210,thY+5.5,{size:7.5,weight:800,color:'#1e3a8a'});
+    txt(c2,'Date',PW-M-20,thY+5.5,{size:7.5,weight:800,color:'#1e3a8a',align:'right'});
+    if(!rpt.activities.length){
+      txt(c2,'No recent operational activity in the sampled records.',M+20,thY+32,{size:8,weight:500,color:'#64748b'});
+    }else{
+      rpt.activities.slice(0,8).forEach((a,idx)=>{
+        const ry=thY+20+idx*rowH;
+        if(idx%2===1)card(c2,M+12,ry,CW-24,rowH,'#f8fafc','',3);
+        txt(c2,a.label,M+20,ry+5,{size:7.4,weight:700,color:'#0f172a',maxW:184});
+        txt(c2,a.details,M+210,ry+5,{size:7.3,weight:500,color:'#475569',maxW:228});
+        txt(c2,D(a.date),PW-M-20,ry+5,{size:7.3,weight:600,color:'#334155',align:'right'});
+      });
+    }
+  }
+
+  card(c2,M,756,CW,37,'#f8fafc','#dce4f0',8);
+  txt(c2,'Methodology & Scope Note: Counts reflect up to the first 100 accessible Appwrite documents per collection ordered newest-first.',M+12,764,{size:7.1,weight:700,color:'#334155',maxW:CW-24});
+  txt(c2,'Vaccination coverage measures verified pets with at least one Vaccination entry (not clinical currency). Dismissed reports are excluded from active surveillance counts.',M+12,776,{size:6.9,weight:500,color:'#64748b',maxW:CW-24});
+  footer(c2,2,2);
+
+  return [p1.canvas,p2.canvas];
+ }
  const colors=['#3978ee','#75b3ff','#f6b44f','#f2746b','#33bca5','#8067d8','#9aabbe'];
  function chart(id,type,labels,values,label,other={}){const node=container.querySelector('#'+id);if(!node)return;
   if(!window.Chart){node.parentElement.textContent='Charts require Chart.js to load.';return;}
@@ -531,17 +907,63 @@ function mount({api,current,container}){
  function monthSeries(records){const today=new Date(),months=[];for(let i=5;i>=0;i--){const d=new Date(today.getFullYear(),today.getMonth()-i,1);months.push({year:d.getFullYear(),month:d.getMonth(),label:d.toLocaleDateString('en-PH',{month:'short'})});}return {labels:months.map(m=>m.label),values:months.map(m=>records.filter(r=>{const t=new Date(r.$createdAt||r.submittedAt);return t.getFullYear()===m.year&&t.getMonth()===m.month;}).length)};}
  async function reports(){if(!admin)throw Error('Only administrators can see aggregate reports');
   const names=['petRequests','pets','petProfiles','medical','diseaseReports','diseaseIncidents','diseaseAlerts','adoptionListings','adoptionApplications','ownership'];
-  const entries=await Promise.all(names.map(async k=>[k,await fetchTable(k)]));const d=Object.fromEntries(entries);d.diseaseReports=d.diseaseReports.filter(r=>r.status!=='archived'&&r.status!=='dismissed');
+  const entries=await Promise.all(names.map(async k=>[k,await fetchTable(k)]));const d=Object.fromEntries(entries);
+  const allDiseaseReports=d.diseaseReports||[];
+  d.diseaseReports=allDiseaseReports.filter(r=>r.status!=='archived'&&r.status!=='dismissed');
   const vaccinePets=new Set(d.medical.filter(r=>r.recordType==='Vaccination').map(r=>r.petId)),covered=d.pets.filter(p=>vaccinePets.has(p.$id)).length;
   const coverage=d.pets.length?Math.round(covered/d.pets.length*100):0;
   const requestsByMonth=monthSeries(d.petRequests);
   const typeCount=['Dog','Cat'].map(species=>d.pets.filter(p=>p.species===species).length);
   const diseaseMap=new Map();d.diseaseIncidents.forEach(r=>diseaseMap.set(r.barangay||'Unknown',(diseaseMap.get(r.barangay||'Unknown')||0)+1));
   const barangays=[...diseaseMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const reportBrgyMap=new Map();d.diseaseReports.forEach(r=>reportBrgyMap.set(r.barangay||'Unknown',(reportBrgyMap.get(r.barangay||'Unknown')||0)+1));
+  const reportBrgyBars=[...reportBrgyMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6);
   const diseases=['Rabies','Canine Parvovirus','Ringworm'].map(type=>d.diseaseIncidents.filter(r=>r.diseaseType===type).length);
+  const diseaseCountMap=new Map([['Rabies',0],['Canine Parvovirus',0],['Ringworm',0]]);
+  d.diseaseIncidents.forEach(r=>{const k=r.diseaseType||'Unspecified';diseaseCountMap.set(k,(diseaseCountMap.get(k)||0)+1);});
+  const diseaseList=[...diseaseCountMap.entries()].sort((a,b)=>b[1]-a[1]);
   const adopted=['pending','approved','rejected'].map(s=>d.adoptionApplications.filter(a=>a.status===s).length);
-  const activities=[...d.petRequests.map(r=>({date:r.$createdAt,icon:'fa-paw',label:'Pet registration submitted',details:r.petName||'Pet'})),...d.diseaseReports.map(r=>({date:r.$createdAt,icon:'fa-virus',label:'Disease report received',details:r.diseaseType||'Disease'})),...d.adoptionApplications.map(r=>({date:r.$createdAt,icon:'fa-heart',label:'Adoption application submitted',details:r.applicantName||'Applicant'}))].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
-  html(head('CVO INTELLIGENCE','Administrative Reports','Registration, health, disease and adoption analytics from accessible Appwrite records.',btn('export','Export summary CSV','fa-file-arrow-down'))+
+  const activities=[...d.petRequests.map(r=>({date:r.$createdAt,icon:'fa-paw',label:'Pet registration submitted',details:r.petName||'Pet'})),...d.diseaseReports.map(r=>({date:r.$createdAt,icon:'fa-virus',label:'Disease report received',details:r.diseaseType||'Disease'})),...d.adoptionApplications.map(r=>({date:r.$createdAt,icon:'fa-heart',label:'Adoption application submitted',details:r.applicantName||'Applicant'})),...d.ownership.map(r=>({date:r.transferDate||r.$createdAt,icon:'fa-right-left',label:'Ownership transferred',details:r.petName||'Verified pet'}))].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
+  const outbreakAlerts=d.diseaseAlerts.filter(a=>a.isActive&&(a.isOutbreak||String(a.title||'').startsWith('Declared outbreak')));
+  const pendingReqs=d.petRequests.filter(r=>r.reviewStatus==='pending').length;
+  const approvedReqs=d.petRequests.filter(r=>r.reviewStatus==='approved').length;
+  const rejectedReqs=d.petRequests.filter(r=>r.reviewStatus==='rejected').length;
+  const vaxCount=d.medical.filter(r=>r.recordType==='Vaccination').length;
+  const treatCount=d.medical.filter(r=>r.recordType==='Treatment').length;
+  const confirmedReports=allDiseaseReports.filter(r=>r.status==='confirmed').length;
+  const dismissedReports=allDiseaseReports.filter(r=>r.status==='dismissed').length;
+  const archivedReports=allDiseaseReports.filter(r=>r.status==='archived').length;
+  const unverifiedReports=allDiseaseReports.filter(r=>!['confirmed','dismissed','archived'].includes(r.status)).length;
+  const activeListings=d.adoptionListings.filter(l=>l.isActive||l.status==='available').length;
+  const profVerified=d.petProfiles.filter(p=>p.verificationStatus==='verified').length;
+  const profPending=d.petProfiles.filter(p=>p.verificationStatus==='pending').length;
+  const profDraft=d.petProfiles.filter(p=>p.verificationStatus==='draft'||!p.verificationStatus).length;
+  const profRejected=d.petProfiles.filter(p=>p.verificationStatus==='rejected').length;
+  const activeAlertsCount=d.diseaseAlerts.filter(a=>a.isActive).length;
+  const reportSnapshot={
+    ...d,generatedAt:new Date().toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}),
+    adminName:current.user.name||current.user.email||'CVO Administrator',
+    activeReports:d.diseaseReports,coverage,covered,requestsByMonth,typeCount,
+    barangaysFromIncidents:barangays.length>0,barangayBars:barangays.length?barangays:reportBrgyBars,
+    outbreakBarangays:new Set(outbreakAlerts.map(a=>String(a.barangay||'').toLowerCase())),
+    diseaseList,adopted,activities,outbreakCount:outbreakAlerts.length,activeAlertsCount,
+    pendingReqs,approvedReqs,rejectedReqs,vaxCount,treatCount,confirmedReports,unverifiedReports,
+    dismissedReports,archivedReports,activeListings,profVerified,profPending,profDraft,profRejected,
+    moduleRows:[
+      ['Verified Pets (pets)','Registry',d.pets.length,`${typeCount[0]} dogs, ${typeCount[1]} cats · ${coverage}% vaccinated`],
+      ['Citizen Profiles (pet_profiles)','Registry',d.petProfiles.length,`${profVerified} verified, ${profPending} pending, ${profDraft} draft`],
+      ['Verification Requests (pet_requests)','Registry',d.petRequests.length,`${pendingReqs} pending, ${approvedReqs} approved, ${rejectedReqs} rejected`],
+      ['Medical Records (medical_records)','Clinical',d.medical.length,`${vaxCount} vaccinations, ${treatCount} treatments`],
+      ['Incident Reports (disease_reports)','Surveillance',allDiseaseReports.length,`${d.diseaseReports.length} active (${confirmedReports} conf, ${unverifiedReports} unv), ${dismissedReports} dism`],
+      ['Confirmed Incidents (disease_incidents)','Surveillance',d.diseaseIncidents.length,`Tracked across ${diseaseMap.size} barangay(s)`],
+      ['Health & Outbreak Alerts (disease_alerts)','Surveillance',d.diseaseAlerts.length,`${activeAlertsCount} active (${outbreakAlerts.length} declared outbreaks)`],
+      ['Adoption Listings (adoption_listings)','Adoption',d.adoptionListings.length,`${activeListings} active public listings`],
+      ['Adoption Applications (adoption_applications)','Adoption',d.adoptionApplications.length,`${adopted[0]} pending, ${adopted[1]} approved, ${adopted[2]} rejected`],
+      ['Ownership History (ownership_history)','Traceability',d.ownership.length,`${d.ownership.length} custody audit record(s)`]
+    ]
+  };
+  const headerButtons=btn('previewReport','Preview report','fa-eye','CV_SOFT')+btn('export','Export summary PDF','fa-file-pdf')+btn('exportCsv','Export CSV','fa-file-csv','CV_SOFT');
+  html(head('CVO INTELLIGENCE','Administrative Reports','Registration, health, disease and adoption analytics from accessible Appwrite records.',headerButtons)+
   `<div class="P4_REPORT_KPIS">${stat('Verified pets',d.pets.length,'fa-paw','Official registry')}${stat('Pending requests',d.petRequests.filter(r=>r.reviewStatus==='pending').length,'fa-hourglass-half','Awaiting review')}${stat('Vaccination entries',d.medical.filter(r=>r.recordType==='Vaccination').length,'fa-syringe','Sampled records')}${stat('Active alerts',d.diseaseAlerts.filter(r=>r.isActive).length,'fa-triangle-exclamation','Public health')}${stat('Adoption requests',d.adoptionApplications.length,'fa-heart','All sampled statuses')}${stat('Confirmed outbreaks',d.diseaseAlerts.filter(a=>a.isActive&&(a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'))).length,'fa-virus','CVO declarations')}</div>`+
   `<div class="P4_CHART_GRID"><article class="P4_CHART_CARD P4_CHART_WIDE"><div class="P4_CHART_TITLE"><div><h3>Pet registration trend</h3><p>Last six months of submitted requests</p></div><span class="P4_CHART_TAG">Monthly</span></div><div class="P4_CHART_CANVAS"><canvas id="p4RegChart"></canvas></div></article>`+
   `<article class="P4_CHART_CARD"><div class="P4_CHART_TITLE"><div><h3>Species breakdown</h3><p>Verified pets</p></div></div><div class="P4_CHART_CANVAS"><canvas id="p4SpeciesChart"></canvas></div></article>`+
@@ -557,7 +979,63 @@ function mount({api,current,container}){
   chart('p4VaxChart','doughnut',['With record','No sampled record'],[covered,Math.max(0,d.pets.length-covered)],'Pets');
   chart('p4DiseaseChart','doughnut',['Rabies','Parvovirus','Ringworm'],diseases,'Cases');
   chart('p4AdoptionChart','bar',['Pending','Approved','Rejected'],adopted,'Applications');
-  container.querySelector('[data-f4=export]').addEventListener('click',()=>csvDownload('cityvethub-analytics-'+new Date().toISOString().slice(0,10)+'.csv',[['Metric','Sampled count'],...names.map(k=>[k,d[k].length]),['Vaccinated verified pets (sample)',covered],['Vaccination coverage percentage (sample)',coverage]]));
+  const exportCsvFile=()=>{
+    const stamp=new Date().toISOString().slice(0,10);
+    csvDownload(`cityvethub-analytics-${stamp}.csv`,[
+      ['Module / Metric','Domain','Sampled Count','Breakdown'],
+      ...reportSnapshot.moduleRows,
+      ['Vaccinated verified pets (sample)','Clinical',covered,`${coverage}% of ${d.pets.length} verified pets`],
+      ['Dismissed incident reports (excluded from active)','Surveillance',dismissedReports,'Excluded from heatmap & active totals'],
+      ['Archived incident reports','Surveillance',archivedReports,'Moved to archive']
+    ]);
+    notice('Summary CSV exported.');
+  };
+  const downloadPdfFile=(existingCanvases)=>{
+    try{
+      const canvases=Array.isArray(existingCanvases)?existingCanvases:renderAdminReportCanvases(reportSnapshot);
+      const blob=buildPdfFromCanvases(canvases);
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download=`cityvethub-executive-report-${new Date().toISOString().slice(0,10)}.pdf`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1200);
+      notice('Executive summary PDF exported.');
+    }catch(err){notice('Could not generate PDF: '+api.readableError(err),true);}
+  };
+  const openReportPreview=()=>{
+    try{
+      const canvases=renderAdminReportCanvases(reportSnapshot);
+      const overlay=document.createElement('div');
+      overlay.className='CV_MODAL CV426_PDF_MODAL';
+      overlay.innerHTML=`<div class="CV_MODAL_CARD CV426_PDF_DIALOG" role="dialog" aria-modal="true" aria-label="Administrative Summary PDF Preview"><div class="CV_MODAL_HEAD"><div><h3><i class="fa-solid fa-file-pdf"></i> Executive Report Preview (2 Pages · A4)</h3><small>Visual summary ready for PDF export or printing</small></div><div class="CV426_PDF_ACTIONS"><button type="button" class="CV_BUTTON CV_SOFT" data-pdf-csv><i class="fa-solid fa-file-csv"></i> CSV</button><button type="button" class="CV_BUTTON CV_SOFT" data-pdf-print><i class="fa-solid fa-print"></i> Print / View PDF</button><button type="button" class="CV_BUTTON PRIMARY_ACTION" data-pdf-download><i class="fa-solid fa-download"></i> Download PDF</button><button type="button" class="CV_BUTTON CV_SOFT" data-close aria-label="Close preview"><i class="fa-solid fa-xmark"></i></button></div></div><div class="CV426_PDF_PAGES"></div></div>`;
+      const host=overlay.querySelector('.CV426_PDF_PAGES');
+      canvases.forEach((canvas,idx)=>{
+        const wrap=document.createElement('figure');
+        wrap.className='CV426_PDF_PAGE_WRAP';
+        canvas.className='CV426_PDF_CANVAS';
+        const cap=document.createElement('figcaption');
+        cap.textContent=`Page ${idx+1} of ${canvases.length} — ${idx===0?'Executive Overview & Visual Charts':'Barangay Surveillance, Tables & Activity Log'}`;
+        wrap.append(cap,canvas);
+        host.append(wrap);
+      });
+      overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))overlay.remove();});
+      overlay.querySelector('[data-pdf-download]').addEventListener('click',()=>downloadPdfFile(canvases));
+      overlay.querySelector('[data-pdf-csv]').addEventListener('click',exportCsvFile);
+      overlay.querySelector('[data-pdf-print]').addEventListener('click',()=>{
+        try{
+          const blob=buildPdfFromCanvases(canvases);
+          const url=URL.createObjectURL(blob);
+          const w=window.open(url,'_blank','noopener');
+          if(!w){URL.revokeObjectURL(url);notice('Popup blocked — use Download PDF instead.',true);return;}
+          setTimeout(()=>URL.revokeObjectURL(url),60000);
+        }catch(err){notice('Could not open PDF viewer: '+api.readableError(err),true);}
+      });
+      document.body.append(overlay);
+    }catch(err){notice('Could not render report preview: '+api.readableError(err),true);}
+  };
+  container.querySelector('[data-f4=export]')?.addEventListener('click',()=>downloadPdfFile());
+  container.querySelector('[data-f4=previewReport]')?.addEventListener('click',openReportPreview);
+  container.querySelector('[data-f4=exportCsv]')?.addEventListener('click',exportCsvFile);
  }
  return {open,refresh,search,close(){key='';cleanup();}};
 }

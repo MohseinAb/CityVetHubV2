@@ -69,7 +69,7 @@
   * `users`: Account verification, role assignment.
 * **`phase4-features.js`**: `window.CityVetPhase4`. Advanced modules:
   * `surveillance`: Interactive Leaflet map, Iligan barangay boundary overlays, incident reports, status filtering (`Unverified`, `Confirmed`, `Dismissed`), and staff case confirmation/dismissal (dismissed reports are excluded from the heatmap and map markers).
-  * `reports`: CVO analytics, charts (Chart.js), exportable summaries.
+  * `reports`: CVO analytics, charts (Chart.js), interactive A4 preview modal, multi-page visual Executive Summary PDF generator (`renderAdminReportCanvases` + `buildPdfFromCanvases`), and CSV summary export.
   * `profile`: User personal settings, ID submission for CVO verification, theme toggle.
 * **`community.js`**: `window.CityVetCommunity`. Community discussions, channel filtering, threaded comments, voting, CVO announcement broadcasting.
 * **`auth.js`**: Handles login and registration pages (`login.html`, `register.html`), auto user-type detection, password resets.

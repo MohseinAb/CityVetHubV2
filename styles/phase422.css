@@ -434,3 +434,48 @@ body.dark-theme .BUTTON_SOLID{background:#fff;color:#1e3a8a;border-color:#fff}
   .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD{min-height:600px!important;height:680px}
   .CV49_SURVEILLANCE_LAYOUT .CV420_REPORT_CARD .P4_REPORT_FEED{min-height:340px!important;max-height:none!important}
 }
+
+/* --- Administrative Summary PDF Preview Modal --- */
+.CV426_PDF_MODAL{z-index:9999}
+.CV426_PDF_DIALOG{
+  width:min(96vw,920px)!important;max-width:920px!important;
+  max-height:92dvh!important;display:flex;flex-direction:column;
+  padding:0!important;overflow:hidden;border-radius:20px!important;
+}
+.CV426_PDF_DIALOG .CV_MODAL_HEAD{
+  padding:16px 20px;margin:0;border-bottom:1px solid var(--line);
+  background:var(--surface);gap:12px;flex-wrap:wrap;
+}
+.CV426_PDF_DIALOG .CV_MODAL_HEAD h3{display:flex;align-items:center;gap:8px;margin:0;font-size:17px}
+.CV426_PDF_DIALOG .CV_MODAL_HEAD h3 i{color:#dc2626}
+.CV426_PDF_DIALOG .CV_MODAL_HEAD small{display:block;font-size:11px;color:var(--sub);margin-top:3px}
+.CV426_PDF_ACTIONS{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+.CV426_PDF_PAGES{
+  flex:1 1 auto;overflow-y:auto;padding:20px;background:#eef3f9;
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+}
+.CV426_PDF_PAGE_WRAP{
+  margin:0;width:100%;max-width:790px;display:flex;flex-direction:column;gap:8px;
+}
+.CV426_PDF_PAGE_WRAP figcaption{
+  font-size:11px;font-weight:700;color:#475569;padding:0 4px;
+}
+.CV426_PDF_CANVAS{
+  width:100%;height:auto;display:block;background:#ffffff;
+  border:1px solid #cbd5e1;border-radius:10px;
+  box-shadow:0 10px 28px rgba(15,23,42,.12);
+}
+.dark-theme .CV426_PDF_PAGES,[data-theme="dark"] .CV426_PDF_PAGES{background:#181e29}
+.dark-theme .CV426_PDF_PAGE_WRAP figcaption,[data-theme="dark"] .CV426_PDF_PAGE_WRAP figcaption{color:#cbd5e1}
+.dark-theme .CV426_PDF_CANVAS,[data-theme="dark"] .CV426_PDF_CANVAS{border-color:#384152;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+@media(max-width:640px){
+  .CV426_PDF_PAGES{padding:12px}
+  .CV426_PDF_ACTIONS{width:100%;justify-content:flex-end}
+}
+@media print{
+  .CV426_PDF_MODAL{position:static;background:#fff}
+  .CV426_PDF_DIALOG{width:100%!important;max-width:none!important;max-height:none!important;box-shadow:none!important}
+  .CV426_PDF_DIALOG .CV_MODAL_HEAD,.CV426_PDF_PAGE_WRAP figcaption{display:none!important}
+  .CV426_PDF_PAGES{padding:0;background:#fff;gap:0}
+  .CV426_PDF_CANVAS{border:0;border-radius:0;box-shadow:none;page-break-after:always}
+}
