@@ -585,19 +585,23 @@ export default async ({req,res,log,error})=>{
         if(!pet){result={notified:false,reason:'not_found'};break;}
         if(pet.vitalStatus!=='Missing'){result={notified:false,reason:'not_missing'};break;}
         if(pet.ownerId===user.$id){result={notified:false,reason:'self_scan'};break;}
-        const scannerProf=await row(T.profiles,user.$id).catch(()=>null);
-        const scannerName=optText(scannerProf?.fullName||user.name||data.scannerName||user.email||'A CityVetHub user',60);
+        const shareIdentity=data.shareIdentity!==false;
+        const scannerProf=shareIdentity?await row(T.profiles,user.$id).catch(()=>null):null;
+        const scannerName=shareIdentity?optText(scannerProf?.fullName||user.name||data.scannerName||user.email||'A CityVetHub user',50):'An anonymous finder';
+        const rawPhone=shareIdentity&&Boolean(data.shareContact)?String(scannerProf?.phone||data.scannerContact||'').replace(/[^+0-9]/g,'').slice(0,20):'';
+        const scannerPhone=rawPhone.length>=7?rawPhone:'';
+        const contactSuffix=scannerPhone?` (${scannerPhone})`:'';
         const bucket=Math.floor(Date.now()/(5*60*1000));
         const notifId='mscan_'+createHash('sha256').update(`${pet.$id}:${user.$id}:${bucket}`).digest('hex').slice(0,28);
-        const title=optText(`${pet.petName}'s QR was scanned by ${scannerName}`,150);
+        const title=optText(`${optText(pet.petName,45)||'Your pet'}'s QR was scanned by ${scannerName}${contactSuffix}`,150);
         try{
           await create(T.matchNotifications,notifId,{ownerId:pet.ownerId,listingId:pet.$id,petName:optText(pet.petName,100),title,createdAt:new Date().toISOString(),isRead:false,pushStatus:'missing_scan'},[roleAdmin,roleUser(pet.ownerId)]);
         }catch(err){
           if(err.status!==409)throw err;
           result={notified:false,reason:'deduplicated'};break;
         }
-        await sendPushToUsers([pet.ownerId],{title:`Missing Pet QR Scanned: ${pet.petName}`,body:`${scannerName} just scanned ${pet.petName}'s QR passport.`,data:{type:'missing_pet_scan',petProfileId:pet.$id}});
-        result={notified:true,petName:pet.petName,scannerName};
+        await sendPushToUsers([pet.ownerId],{title:`Missing Pet QR Scanned: ${pet.petName}`,body:`${scannerName}${contactSuffix} just scanned ${pet.petName}'s QR passport.`,data:{type:'missing_pet_scan',petProfileId:pet.$id}});
+        result={notified:true,petName:pet.petName,scannerName,...(scannerPhone?{scannerContact:scannerPhone}:{}),anonymous:!shareIdentity};
         break;
       }
       case 'ensurePetPassport':{
