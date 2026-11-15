@@ -175,8 +175,12 @@
      const coverageRows=[...byBarangay].sort((a,b)=>a[0].localeCompare(b[0])).map(([place,v])=>tr([h(place),h(v.total),h(v.vaccinated),h(v.total?Math.round(v.vaccinated/v.total*100)+'%':'—')]));
      const petPhoto=pet=>profileById.get(pet?.petProfileId)?.photoFileId||profileById.get(pet?.$id)?.photoFileId||pet?.photoFileId||'';
      const staffPhoto=(pet,cls='CV49_DIRECTORY_PHOTO')=>{
-       const url=staffById.get(pet?.$id)?.imageUrl||pet?.imageUrl;
-       return url?`<span class="${cls}"><img src="${h(url)}" alt="${h(pet.petName)} photo" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden class="CV49_IMAGE_FALLBACK"><i class="fa-solid fa-paw"></i></span></span>`:image(pet?.photoFileId||petPhoto(pet),cls);
+       const fileId=pet?.photoFileId||petPhoto(pet);
+       let url=staffById.get(pet?.$id)?.imageUrl||pet?.imageUrl||'';
+       if(!url&&fileId){try{url=String(api.storage.getFileView({bucketId:cfg.buckets.media,fileId}));}catch{}}
+       const petId=pet?.$id||'';
+       const petProfileId=pet?.petProfileId||pet?.$id||'';
+       return url?`<span class="${cls}"><img src="${h(url)}" alt="${h(pet?.petName||'Pet')} photo" loading="lazy" data-pet-id="${h(petId)}" data-pet-profile-id="${h(petProfileId)}" onerror="window.CityVet?.recoverStaffPetPhoto?window.CityVet.recoverStaffPetPhoto(this):(this.hidden=true,this.nextElementSibling&&(this.nextElementSibling.hidden=false))"><span hidden class="CV49_IMAGE_FALLBACK"><i class="fa-solid fa-paw"></i></span></span>`:`<span class="${cls}">${iconFallback('fa-paw')}</span>`;
      };
      const petRow=record=>petById.get(record.petId)||profileById.get(record.petId)||staffById.get(record.petId)||{petName:'Pet record',species:'',breed:''};
      const roster=owner?family:staffPets;

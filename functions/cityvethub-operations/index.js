@@ -481,6 +481,52 @@ export default async ({req,res,log,error})=>{
         await syncPassport(saved,user.name||user.email);
         result=saved;break;
       }
+      case 'adminCreatePet':{
+        verify(403,admin,'Only CVO Administrators can add pets directly.');
+        const targetOwnerId=optText(data.ownerId,36)||user.$id;
+        let targetOwnerName=user.name||user.email||'CVO Administrator';
+        if(targetOwnerId!==user.$id){
+          const ownerProf=await row(T.profiles,targetOwnerId).catch(e=>e.status===404?null:Promise.reject(e));
+          if(ownerProf){targetOwnerName=ownerProf.fullName||ownerProf.email||targetOwnerName;}
+          else{
+            const ownerAcct=await getUserDoc(targetOwnerId);
+            verify(404,Boolean(ownerAcct),'Selected pet owner account was not found.');
+            targetOwnerName=ownerAcct.name||ownerAcct.email||targetOwnerName;
+          }
+        }
+        const petName=requireText(data.petName,100),species=accept(data.species,['Dog','Cat']),breed=requireText(data.breed,100),sex=accept(data.sex,['Male','Female']),barangay=cityBarangay(data.barangay);
+        const ageYears=Number(data.ageYears);verify(400,Number.isInteger(ageYears)&&ageYears>=0&&ageYears<=40,'Invalid age');
+        const photoFileId=optText(data.photoFileId,36);
+        if(photoFileId)await assertUploadedPhoto(photoFileId,user,true,true);
+        const verifyNow=data.verifyImmediately!==false;
+        let registryId='';
+        if(verifyNow){
+          registryId=officialId(data.officialRegistryId);
+          stage='adminCreatePet:claim-unique-registry-id';
+          try{await create(T.registryIds,registryId,{requestId:'admin_pending',assignedById:user.$id},[roleAdmin]);}
+          catch(e){if(e.status===409)verify(409,false,'This official ID has already been assigned to another pet.');throw e;}
+        }
+        const vitalStatus=accept(data.vitalStatus||'Alive',['Alive','Deceased','Missing']);
+        const petData={ownerId:targetOwnerId,petName,species,breed,sex,ageYears,barangay,photoFileId,verificationStatus:verifyNow?'verified':'draft',officialRegistryId:registryId,vitalStatus,...petSafeDetails(data)};
+        stage='adminCreatePet:save-inventory';
+        const saved=await create(T.inventory,'unique()',petData,[roleUser(targetOwnerId),roleAdmin]);
+        if(verifyNow){
+          stage='adminCreatePet:save-verified';
+          const officialData={ownerId:targetOwnerId,ownerName:targetOwnerName,petName,species,breed,sex,ageYears,barangay,requestId:saved.$id,officialRegistryId:registryId,
+            petProfileId:saved.$id,homeAddress:saved.homeAddress||'',photoFileId:saved.photoFileId||'',lostFoundMessage:saved.lostFoundMessage||'',emergencyContact:saved.emergencyContact||'',
+            sharePublicAddress:!!saved.sharePublicAddress,shareContact:!!saved.shareContact,vaccinationStatus:'No vaccination on record',vitalStatus};
+          const officialPet=await create(T.pets,'unique()',officialData,[roleUser(targetOwnerId),roleAdmin,roleOfficer]);
+          await update(T.registryIds,registryId,{requestId:officialPet.$id}).catch(()=>{});
+          await update(T.inventory,saved.$id,{latestRequestId:officialPet.$id}).catch(()=>{});
+          saved.latestRequestId=officialPet.$id;
+        }
+        if(saved.sharePublicPhoto&&saved.photoFileId)await setFilePublic(saved.photoFileId,true);
+        await syncPassport(saved,targetOwnerName);
+        if(targetOwnerId!==user.$id){
+          await sendPushToUsers([targetOwnerId],{title:`${petName} was registered by CVO`,body:verifyNow?`Assigned Official Registry ID: ${registryId}.`:`Added to your My Pets inventory.`,data:{type:'verification',petProfileId:saved.$id}});
+        }
+        result=saved;break;
+      }
       case 'updateInventoryPet':{
         verify(403,owner);
         const pet=await row(T.inventory,requireText(data.petProfileId,36));verify(403,pet.ownerId===user.$id,'Not your pet');
@@ -1089,6 +1135,30 @@ export default async ({req,res,log,error})=>{
           });
         }
         result={pets:directory,limitedTo:100};break;
+      }
+      case 'getStaffPetPhoto':{
+        verify(403,admin||officer,'CVO personnel only');
+        const petId=optText(data.petId,36);
+        const petProfileId=optText(data.petProfileId,36);
+        verify(400,Boolean(petId||petProfileId),'Pet ID is required.');
+        const lookup=async(table,id)=>{
+          if(!id)return null;
+          try{return await row(table,id);}catch(e){if(e.status===404)return null;throw e;}
+        };
+        const petRow=await lookup(T.pets,petId)||await lookup(T.pets,petProfileId);
+        const invRow=await lookup(T.inventory,petProfileId)||await lookup(T.inventory,petRow?.petProfileId)||await lookup(T.inventory,petId);
+        const fileId=String(invRow?.photoFileId||petRow?.photoFileId||'').trim();
+        verify(404,Boolean(fileId),'No pet photo on record.');
+        let file;
+        try{file=await api('GET',`/storage/buckets/${MEDIA}/files/${idPart(fileId)}`);}
+        catch(e){
+          if(e.status===404)verify(404,false,'No pet photo on record.');
+          throw e;
+        }
+        const expire=new Date(Date.now()+10*60*1000).toISOString();
+        const token=await api('POST',`/tokens/buckets/${idPart(MEDIA)}/files/${idPart(file.$id)}`,{expire});
+        const imageUrl=`${ENDPOINT}/storage/buckets/${idPart(MEDIA)}/files/${idPart(file.$id)}/view?project=${encodeURIComponent(PROJECT)}&token=${encodeURIComponent(token.secret)}`;
+        result={photoFileId:file.$id,imageUrl,expire};break;
       }
       case 'listOwnListingApplications':{
         verify(403,owner,'Only Pet Owners can access their listing applications.');

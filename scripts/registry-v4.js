@@ -182,11 +182,14 @@ function mount({api,current}){
   const staffById=new Map(staffDirectory.map(p=>[p.$id,p]));
   const photoOf=request=>{
     const pet=byId.get(request.$id)||approved.find(p=>p.petProfileId===request.petProfileId);
-    const secure=staffById.get(pet?.$id)?.imageUrl;
-    if(secure)return `<img class="P4_PET_IMAGE" loading="lazy" alt="${H(request.petName)} photo" src="${H(secure)}" onerror="this.hidden=true;this.parentElement.classList.add('P46_IMAGE_ERROR')">`;
-    return img(staffInventory.find(p=>p.$id===request.petProfileId)?.photoFileId||request.photoFileId||pet?.photoFileId);
+    const fileId=staffInventory.find(p=>p.$id===request.petProfileId)?.photoFileId||request.photoFileId||pet?.photoFileId||staffById.get(pet?.$id)?.photoFileId||'';
+    const src=staffById.get(pet?.$id)?.imageUrl||safeImage(fileId);
+    const petId=pet?.$id||'';
+    const petProfileId=request.petProfileId||pet?.petProfileId||pet?.$id||'';
+    if(src)return `<img class="P4_PET_IMAGE" loading="lazy" alt="${H(request.petName)} photo" src="${H(src)}" data-pet-id="${H(petId)}" data-pet-profile-id="${H(petProfileId)}" onerror="window.CityVet?.recoverStaffPetPhoto?window.CityVet.recoverStaffPetPhoto(this):(this.hidden=true,this.parentElement.classList.add('P46_IMAGE_ERROR'))">`;
+    return '<div class="P4_PHOTO_FALLBACK"><i class="fa-solid fa-paw"></i></div>';
   };
-  show(admin?'Pet Verification':'Verified Pet Registry',admin?'Review requests; each pet already has a QR profile, whether verified or not.':'See registered pets and their official status.',action('Refresh','reload','','fa-rotate'),
+  show(admin?'Pet Verification':'Verified Pet Registry',admin?'Review requests; each pet already has a QR profile, whether verified or not.':'See registered pets and their official status.',(admin?action('Add pet','adminAddPet','','fa-plus',true):'')+action('Refresh','reload','','fa-rotate'),
     `<div class="P4_SUMMARY_GRID"><div class="P4_SUMMARY"><span>${admin?'Total requests':'Verified registry pets'}</span><strong>${admin?requests.length:approved.length}</strong></div><div class="P4_SUMMARY"><span>Pending</span><strong>${admin?requests.filter(r=>r.reviewStatus==='pending').length:0}</strong></div><div class="P4_SUMMARY"><span>Verified</span><strong>${approved.length}</strong></div><div class="P4_SUMMARY"><span>Rejected</span><strong>${requests.filter(r=>r.reviewStatus==='rejected').length}</strong></div></div>`+
     `<div class="CV_TABLE_WRAP"><table class="CV_TABLE CV49_VERIFICATION_TABLE"><thead><tr><th>Pet</th><th>Owner</th><th>Barangay</th><th>Official ID</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>${visible.map(r=>`<tr><td><span class="CV49_CELL_FLEX"><span class="CV49_THUMB">${photoOf(r)}</span><strong>${H(r.petName)}</strong></span></td><td><span class="CV49_CELL_FLEX"><span class="CV49_USER_AVATAR">${img(staffOwners.find(p=>p.userId===r.ownerId)?.profileImageId)}</span><strong>${H(r.ownerName)}</strong></span></td><td>${H(r.barangay)}</td><td>${H(byId.get(r.$id)?.officialRegistryId||'Not assigned')}</td><td>${H(date(r.$createdAt))}</td><td>${status(byId.has(r.$id)?'verified':r.reviewStatus)}</td><td>${admin&&r.reviewStatus==='pending'?action('Review','review',r.$id,'fa-check'):byId.has(r.$id)?action('QR profile','staffQr',byId.get(r.$id).petProfileId||byId.get(r.$id).$id,'fa-qrcode')+(!byId.get(r.$id).officialRegistryId?action('Assign official ID','assignId',byId.get(r.$id).$id,'fa-id-card'):''):'—'}</td></tr>`).join('')||'<tr><td colspan="7">No records found</td></tr>'}</tbody></table></div>`);
  }
@@ -195,6 +198,54 @@ function mount({api,current}){
   modal(`Assign official ID · ${p.petName}`,fld('Unique official CVO registry ID','officialRegistryId','','text','required pattern="[A-Za-z0-9][A-Za-z0-9_-]{3,29}" maxlength="30" placeholder="e.g. CVH-2026-0002"'),async form=>{
     await api.operate('assignOfficialPetId',{petId:p.$id,officialRegistryId:form.elements.officialRegistryId.value});
   });
+ }
+ function adminAddPetForm(){
+  const ownerOpts=[...staffOwners].sort((a,b)=>String(a.fullName||a.email||'').localeCompare(String(b.fullName||b.email||'')))
+    .map(u=>`<option value="${H(u.userId||u.$id)}">${H(u.fullName||u.email||'Pet Owner')}${u.barangay?' · '+H(u.barangay):''}</option>`).join('');
+  const layer=modal('Add pet to system',
+    `<label class="P4_FORM_WIDE">Assign to owner<select name="ownerId"><option value="">CVO / Admin-managed (current admin)</option>${ownerOpts}</select></label>`+
+    fld('Pet name','petName','','text','required maxlength="100"')+
+    select('Animal type','species',['Dog','Cat'],'Dog')+
+    `<label>Breed <select name="breed" required><option value="">Loading available breeds…</option></select></label>`+
+    select('Coat color','color',window.CityVetBreedCatalog?.colors||['Black','White','Brown','Gray','Other / Unknown'],'Other / Unknown')+
+    select('Sex','sex',['Male','Female'],'Male')+
+    fld('Age in years','ageYears',0,'number','min="0" max="40" required')+
+    `<label>Barangay<select name="barangay" required>${window.CityVetBarangays?.options('')||'<option value="">Select barangay</option>'}</select></label>`+
+    select('Vital status','vitalStatus',['Alive','Missing','Deceased'],'Alive')+
+    checkbox('Verify immediately & assign Official CVO Registry ID','verifyImmediately',true)+
+    fld('Unique official CVO registry ID','officialRegistryId','','text','required pattern="[A-Za-z0-9][A-Za-z0-9_-]{3,29}" maxlength="30" placeholder="e.g. CVH-2026-0001"')+
+    txt('Pet description','profileDescription','',1500)+
+    txt('Lost & found message','lostFoundMessage','',500)+
+    `<label class="P4_FORM_WIDE">Pet photo (JPG/PNG/WEBP, 5 MB)<input name="picture" type="file" accept="image/jpeg,image/png,image/webp"></label>`+
+    checkbox('Show owner name on public QR','shareOwnerName',false)+
+    checkbox('Show pet photo on public QR','sharePublicPhoto',true),
+    async form=>{
+      const d=Object.fromEntries(new FormData(form));
+      const file=form.querySelector('[name=picture]').files[0];
+      const photoFileId=file?await upload(file):'';
+      await api.operate('adminCreatePet',{
+        ownerId:String(d.ownerId||'').trim(),
+        petName:String(d.petName||'').trim(),
+        species:d.species,
+        breed:String(d.breed||'').trim(),
+        color:String(d.color||'').trim(),
+        sex:d.sex,
+        ageYears:Number(d.ageYears),
+        barangay:String(d.barangay||'').trim(),
+        vitalStatus:d.vitalStatus||'Alive',
+        verifyImmediately:form.elements.verifyImmediately.checked,
+        officialRegistryId:String(d.officialRegistryId||'').trim(),
+        profileDescription:String(d.profileDescription||'').trim(),
+        lostFoundMessage:String(d.lostFoundMessage||'').trim(),
+        photoFileId,
+        shareOwnerName:form.elements.shareOwnerName.checked,
+        sharePublicPhoto:form.elements.sharePublicPhoto.checked
+      });
+    },'Add pet','Pet added to system.');
+  const type=layer.querySelector('[name=species]'),breedSel=layer.querySelector('[name=breed]');
+  window.CityVetBreedCatalog?.attach(api,type,breedSel,'');
+  const verifyChk=layer.querySelector('[name=verifyImmediately]'),idField=layer.querySelector('[name=officialRegistryId]');
+  verifyChk?.addEventListener('change',()=>{idField.disabled=!verifyChk.checked;idField.required=verifyChk.checked;if(!verifyChk.checked)idField.value='';});
  }
  function listForAdoption(pet){
   if(isAlreadyListed(pet.$id)){notice('This pet already has an adoption listing. Manage it under Adoptions.',true);return;}
@@ -260,6 +311,7 @@ function mount({api,current}){
    if(cmd==='verify'&&owner&&pet){return window.CityVetUI?.confirm({title:`Submit ${pet.petName} for CVO verification?`,description:'Your personal QR passport already works. Submitting requests official CVO verification.',confirmLabel:'Submit request',onConfirm:async()=>{await api.operate('requestPetVerification',{petProfileId:pet.$id});await reload(true);notice('Verification request sent to CVO.');}});}
    if(cmd==='review'&&admin)return review(id);
    if(cmd==='assignId'&&admin)return assignLegacyId(id);
+   if(cmd==='adminAddPet'&&admin)return adminAddPetForm();
    if(cmd==='staffQr'){const url=new URL('./passport.html',document.baseURI);url.searchParams.set('pet',id);window.open(url.href,'_blank','noopener');}
   }catch(error){notice(api.readableError(error),true);button.disabled=false;}
  });

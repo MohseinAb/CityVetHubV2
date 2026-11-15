@@ -19,7 +19,7 @@
         'communityOverview', 'communityChannel', 'communityComments', 'communitySearch',
         'communityImageToken', 'communityAvatarTokens', 'communityOfficialNotices',
         'communityNotifications',
-        'getStaffPetDirectory', 'resolveMedicalRecorders', 'listOwnListingApplications',
+        'getStaffPetDirectory', 'getStaffPetPhoto', 'resolveMedicalRecorders', 'listOwnListingApplications',
         'getAdoptionPreferences', 'resolveAdoptionApplicationNames', 'listUsers',
         'openVerificationDocument', 'resolveReporterRoles', 'getIncidentReportDetails',
         'ensurePetPassport', 'communityJoinRequests'
@@ -182,5 +182,57 @@
         return error?.message || 'Something went wrong. Please try again.';
     }
 
-    window.CityVet = Object.freeze({ version:'4.22.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, subscribeRealtime, context, login, register, logout, sendVerificationEmail, verifyEmail, destination, readableError });
+    const staffPhotoCache = new Map();
+    const staffPhotoInFlight = new Map();
+
+    async function recoverStaffPetPhoto(imgEl) {
+        if (!imgEl) return;
+        const fallback = () => {
+            imgEl.hidden = true;
+            if (imgEl.nextElementSibling && imgEl.nextElementSibling.classList.contains('CV49_IMAGE_FALLBACK')) {
+                imgEl.nextElementSibling.hidden = false;
+            }
+            if (imgEl.parentElement && imgEl.classList.contains('P4_PET_IMAGE')) {
+                imgEl.parentElement.classList.add('P46_IMAGE_ERROR');
+            }
+        };
+        if (imgEl.dataset.staffPhotoRetried === '1') {
+            fallback();
+            return;
+        }
+        imgEl.dataset.staffPhotoRetried = '1';
+        const petId = (imgEl.dataset.petId || '').trim();
+        const petProfileId = (imgEl.dataset.petProfileId || '').trim();
+        const key = petId || petProfileId;
+        if (!key) {
+            fallback();
+            return;
+        }
+        const cached = staffPhotoCache.get(key);
+        if (cached && cached.expiresAt > Date.now() && cached.url && cached.url !== imgEl.src) {
+            imgEl.src = cached.url;
+            return;
+        }
+        try {
+            let req = staffPhotoInFlight.get(key);
+            if (!req) {
+                req = operate('getStaffPetPhoto', { petId, petProfileId }).finally(() => {
+                    staffPhotoInFlight.delete(key);
+                });
+                staffPhotoInFlight.set(key, req);
+            }
+            const res = await req;
+            if (res?.imageUrl) {
+                staffPhotoCache.set(key, {
+                    url: res.imageUrl,
+                    expiresAt: Date.now() + 8 * 60 * 1000
+                });
+                imgEl.src = res.imageUrl;
+                return;
+            }
+        } catch {}
+        fallback();
+    }
+
+    window.CityVet = Object.freeze({ version:'4.22.0', ready, client, config, account, teams, tablesDB, storage, functions, operate, subscribeRealtime, context, login, register, logout, sendVerificationEmail, verifyEmail, destination, readableError, recoverStaffPetPhoto });
 })();
