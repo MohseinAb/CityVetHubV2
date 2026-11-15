@@ -9,11 +9,43 @@
  const button=(label,action,attrs='',sty='')=>`<button type="button" class="COMM_BTN ${sty}" data-community-action="${action}" ${attrs}>${label}</button>`;
  function mount({api,current,container}){
   const role=current.role,owner=role==='owner',officer=role==='officer',admin=role==='admin';
-  let active=false,viewMode='community',overview=null,selected=null,selectedPost=null,section='feed',searchQuery='',revision=0,notifyTimer=null;
+  let active=false,viewMode='community',overview=null,selected=null,selectedPost=null,section='feed',searchQuery='',revision=0,notifyTimer=null,myTagPets=[],pendingDraft=null;
+  const DRAFT_KEY='cityvet_pending_community_draft_v1';
   const avatarCache=new Map(); // Short-lived author photo links; never persisted in storage.
   const staffRoles=new Map([[current.user.$id,role]]);
   const isVerified=()=>admin||officer||!!overview?.verified;
   const canParticipate=()=>admin||officer||(owner&&!!overview?.verified);
+  const passportUrlFor=id=>{try{const b=String(api.config?.publicSiteUrl||'').trim();const u=new URL('passport.html',b?new URL(b.endsWith('/')?b:b+'/'):new URL('./',document.baseURI));u.searchParams.set('pet',id);return u.href;}catch{return '';}};
+  const formatPetTagCard=(pet,variant='full')=>{
+   const url=passportUrlFor(pet.$id),st=pet.vitalStatus||'Alive';
+   if(variant==='compact'){
+    return `[Pet Card: ${pet.petName||'Pet'} (${pet.species||'Pet'}/${pet.breed||'Mixed'}${pet.color?`, ${pet.color}`:''}) · Brgy. ${pet.barangay||'Iligan City'} · Status: ${st}${pet.officialRegistryId?` · ID: ${pet.officialRegistryId}`:''}${url?` · QR: ${url}`:''}]`;
+   }
+   return [
+    `Pet Profile: ${pet.petName||'Pet'}`,
+    `• Type / Breed: ${pet.species||'Pet'} · ${pet.breed||'Mixed'}${pet.color?` · Coat: ${pet.color}`:''}`,
+    `• Sex / Age: ${pet.sex||'Unknown'}${typeof pet.ageYears==='number'?` · ${pet.ageYears} yr(s)`:''}`,
+    `• Barangay: Brgy. ${pet.barangay||'Iligan City'}, Iligan City`,
+    `• Status: ${st}`,
+    pet.officialRegistryId?`• CVO ID: ${pet.officialRegistryId}`:'',
+    url?`• Public QR Passport: ${url}`:''
+   ].filter(Boolean).join('\n');
+  };
+  const tagChipsHtml=mode=>myTagPets.length?`<div class="COMM_TAG_STRIP"><span>${fa('paw')} ${mode==='comment'?'Insert pet info:':'Tap to insert pet info card:'}</span><div class="COMM_TAG_CHIPS">${myTagPets.map(p=>`<button type="button" class="COMM_TAG_CHIP ${p.vitalStatus==='Missing'?'is-missing':''}" data-tag-pet="${H(p.$id)}" data-tag-mode="${mode}">${p.vitalStatus==='Missing'?'[MISSING] ':''}${H(p.petName||'Pet')}</button>`).join('')}</div></div>`:'';
+  const pickDraftChannel=preferred=>{
+   const ok=(overview?.channels||[]).filter(c=>c.canRead&&(preferred==='missing'?(c.postPolicy==='missing_pet'||c.canPost):c.canPost));
+   if(!ok.length)return null;
+   if(preferred==='missing'){
+    return ok.find(c=>c.postPolicy==='missing_pet')||ok.find(c=>/\b(missing|lost)\b/i.test(c.name||''))||ok.find(c=>/\bfound\b/i.test(c.name||''))||ok.find(c=>c.privacy==='public')||ok[0];
+   }
+   return ok.find(c=>c.privacy==='public')||ok[0];
+  };
+  async function loadMyTagPets(){
+   try{
+    const res=await api.tablesDB.listRows({databaseId:api.config.databaseId,tableId:api.config.tables.petProfiles,queries:[window.Appwrite.Query.orderDesc('$createdAt'),window.Appwrite.Query.limit(40)]});
+    myTagPets=(res.rows||[]).filter(p=>p.ownerId===current.user.$id);
+   }catch{myTagPets=[];}
+  }
   const ROLE_TAG_RE=/\s*\[(Admin|Field Officer)\]\s*$/i;
   const parseAuthor=(item)=>{
     const raw=String(item?.authorName||'Member');
@@ -41,7 +73,26 @@
   function verifiedNotice(){return `<div class="COMM_VERIFY">${fa('shield-halved')} Account verification is required to publish discussions, create channels, comment or vote. Public discussions remain readable. ${button('Go to My Profile','goProfile','','small')}</div>`;}
   function noticeCard(n){let tag=n.category==='outbreak'?'Declared outbreak':n.category==='advisory'?'CVO advisory':'Official announcement';return `<article class="COMM_OFFICIAL ${n.category==='outbreak'?'outbreak':''}"><div class="COMM_OFFICIAL_ICON">${fa(n.category==='outbreak'?'triangle-exclamation':'bullhorn')}</div><div class="COMM_OFFICIAL_BODY"><div class="COMM_TAGS"><span class="COMM_TAG official">${H(tag)}</span>${admin?`<span class="COMM_TAG">${H(n.audience)}</span>`:''}${n.barangay?`<span class="COMM_TAG">${fa('location-dot')} ${H(n.barangay)}</span>`:''}<span class="COMM_MUTED">${H(date(n.date))}</span></div><h3>${H(n.title)}</h3><p>${txt(n.body)}</p></div>${admin&&n.category==='announcement'&&n.isActive?button('Deactivate','deactivateAnnouncement',`data-id="${H(n.id)}"`,'small'):''}</article>`;}
   const privacyMeta=p=>p==='staff'?{icon:'user-shield',label:'Staff Only',locked:true}:p==='invite'?{icon:'eye-slash',label:'Invite Only',locked:true}:p==='private'?{icon:'lock',label:'Private',locked:true}:{icon:'hashtag',label:'Public',locked:false};
-  function channelCard(ch){const meta=privacyMeta(ch.privacy),locked=!ch.canRead||meta.locked;return `<button type="button" class="COMM_CHANNEL ${selected===ch.id?'selected':''}" data-community-action="viewChannel" data-id="${H(ch.id)}"><span class="COMM_CHANNEL_ICON">${fa(meta.icon)}</span><span class="COMM_CHANNEL_TEXT"><strong>${H(ch.name)}</strong><small>${H(ch.description||'Pet owner community')}</small></span><span class="COMM_TAG ${locked?'locked':''}">${meta.label}</span></button>`;}
+  const policyTag=ch=>{
+    if(ch?.postPolicy==='admin')return {icon:'eye',label:ch.commentPolicy==='admin'?'Seen Only':'Admin Posts'};
+    if(ch?.postPolicy==='staff')return {icon:'user-shield',label:'Staff Posts'};
+    if(ch?.postPolicy==='verified_pet')return {icon:'shield-halved',label:'Verified Pets'};
+    if(ch?.postPolicy==='missing_pet')return {icon:'magnifying-glass-location',label:'Missing Alerts'};
+    return null;
+  };
+  function policyTagsHtml(ch){
+    const pTag=policyTag(ch),out=[];
+    if(pTag)out.push(`<span class="COMM_TAG readonly">${fa(pTag.icon)} ${H(pTag.label)}</span>`);
+    if(ch?.commentPolicy==='admin')out.push(`<span class="COMM_TAG readonly">${fa('comment-slash')} Comments Off</span>`);
+    else if(ch?.commentPolicy==='staff')out.push(`<span class="COMM_TAG readonly">${fa('user-shield')} Staff Comments</span>`);
+    else if(pTag&&ch?.postPolicy==='missing_pet')out.push(`<span class="COMM_TAG">${fa('comment-dots')} Comments Open</span>`);
+    return out.join('');
+  }
+  function channelCard(ch){
+    const meta=privacyMeta(ch.privacy),locked=!ch.canRead||meta.locked,pTag=ch.canRead?policyTag(ch):null;
+    const tagHtml=pTag?`<span class="COMM_TAG readonly">${H(pTag.label)}</span>`:`<span class="COMM_TAG ${locked?'locked':''}">${meta.label}</span>`;
+    return `<button type="button" class="COMM_CHANNEL ${selected===ch.id?'selected':''}" data-community-action="viewChannel" data-id="${H(ch.id)}"><span class="COMM_CHANNEL_ICON">${fa(pTag?pTag.icon:meta.icon)}</span><span class="COMM_CHANNEL_TEXT"><strong>${H(ch.name)}</strong><small>${H(ch.description||'Pet owner community')}</small></span>${tagHtml}</button>`;
+  }
   const postScore=p=>`<div class="COMM_SCORE" aria-label="Vote score: ${Number(p.score)||0}"><button ${canParticipate()?'':'disabled title="Verified members only"'} data-community-action="votePost" data-target="${H(p.id)}" data-channel-id="${H(p.channelId)}" data-value="1" type="button" aria-label="Upvote" class="${p.myVote===1?'is-voted':''}">${fa('arrow-up')}</button><strong>${Number(p.score)||0}</strong><button ${canParticipate()?'':'disabled title="Verified members only"'} data-community-action="votePost" data-target="${H(p.id)}" data-channel-id="${H(p.channelId)}" data-value="-1" type="button" aria-label="Downvote" class="${p.myVote===-1?'is-voted':''}">${fa('arrow-down')}</button></div>`;
   function postCard(p,search=false){const imgs=(p.imageFileIds||[]).map(fid=>`<div class="COMM_POST_IMAGE"><img data-community-image="1" data-post-id="${H(p.id)}" data-file-id="${H(fid)}" loading="lazy" alt="Discussion attachment"><span>Loading image…</span></div>`).join('');
    const author=parseAuthor(p);
@@ -164,7 +215,25 @@
       api.operate('listUsers').then(res=>{for(const u of res?.users||[])if(u.$id&&u.effectiveRole)staffRoles.set(u.$id,u.effectiveRole);}).catch(()=>{});
     }
   }
-  async function open(mode='community'){active=true;viewMode=mode;section=mode==='officer-notices'?'notices':'feed';selected=null;searchQuery='';await refresh();}
+  function consumeStoredDraft(){
+   try{
+    const raw=localStorage.getItem(DRAFT_KEY);if(!raw)return null;
+    localStorage.removeItem(DRAFT_KEY);
+    const parsed=JSON.parse(raw);
+    if(parsed&&(!parsed.createdAt||Date.now()-parsed.createdAt<15*60*1000))return parsed;
+   }catch{}
+   return null;
+  }
+  async function open(mode='community'){
+   active=true;viewMode=mode;section=mode==='officer-notices'?'notices':'feed';selected=null;searchQuery='';
+   const queued=pendingDraft||consumeStoredDraft();pendingDraft=null;
+   await Promise.all([refresh(),loadMyTagPets()]);
+   if(queued&&viewMode!=='officer-notices')submitPost(true,queued);
+  }
+  async function openWithDraft(draft){
+   pendingDraft=draft||null;
+   if(active){pendingDraft=null;if(!myTagPets.length)await loadMyTagPets();submitPost(true,draft);}
+  }
   function close(){active=false;selected=null;document.querySelector('.COMM_MODAL')?.remove();}
   async function refresh(silent=false){if(!active)return;const rev=++revision;
    const scroller=document.querySelector('.DASHBOARD_CONTENT')||document.documentElement;
@@ -197,9 +266,10 @@
   async function renderFeed(silent=false){const channels=overview?.channels||[];
     const buttons=`${admin?button(fa('plus')+' Announcement','newAnnouncement','','primary'):''}${canParticipate()?button(fa('plus')+' Create channel','newChannel','','primary'):''}`;
     const activeChannels=channels.filter(c=>c.canRead);
+    const canCompose=canParticipate()&&channels.some(c=>c.canRead&&c.canPost!==false);
     const hasExistingFeed=Boolean(silent&&container.querySelector('#commFeedPosts'));
     if(!hasExistingFeed){
-      container.innerHTML=`<div class="COMM_PAGE">${header('Community','Connect, share pet stories, and learn from Iligan City pet owners.',buttons)}<div id="communityNotice" hidden></div>${owner&&!isVerified()?verifiedNotice():''}<div class="COMM_TABS">${button(fa('house')+' For you','feed','','active')}${button(fa('bullhorn')+' Official notices','notices')}</div><section class="COMM_HERO"><div class="COMM_HERO_COPY"><span>${fa('paw')} YOUR PET COMMUNITY</span><h2>Good conversations.<br>Happier pets.</h2><p>Ask questions, share moments, find your community, and stay informed with official CVO updates.</p></div><div class="COMM_HERO_DECOR" aria-hidden="true">${fa('paw')}</div><div class="COMM_HERO_BADGE">${fa('users')} ${channels.length} ${channels.length===1?'channel':'channels'} to discover</div></section><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_COMPOSER"><div class="COMM_COMPOSER_TOP"><span class="COMM_COMPOSER_AVATAR" data-community-avatar-user="${H(current.user.$id)}" data-community-avatar-self="1" aria-label="My profile picture">${avatar(current.user.name||current.user.email)}</span><button type="button" class="COMM_COMPOSER_PROMPT" data-community-action="${canParticipate()?'newFeedPost':'goProfile'}">${canParticipate()?`What's happening in the pet community?`:'Explore posts from pet owners around Iligan City'}</button></div><div class="COMM_COMPOSER_FOOT"><span>${fa('images')} Share photos and stories</span>${canParticipate()?button(fa('pen')+' Create a post','newFeedPost','','primary small'):`<span>${fa('lock')} Verified members can post</span>`}</div></section><div class="COMM_FEED_TITLE"><div><h2>Latest discussions</h2><p>From public and accessible community channels</p></div><span class="COMM_FEED_COUNT" id="commPostCount">${fa('spinner fa-spin')} Loading</span></div><div id="commFeedPosts" class="COMM_POST_LIST"><div class="COMM_LOADING">${fa('spinner fa-spin')} Loading discussions…</div></div></main>${officialPreview()}</div></div>`;
+      container.innerHTML=`<div class="COMM_PAGE">${header('Community','Connect, share pet stories, and learn from Iligan City pet owners.',buttons)}<div id="communityNotice" hidden></div>${owner&&!isVerified()?verifiedNotice():''}<div class="COMM_TABS">${button(fa('house')+' For you','feed','','active')}${button(fa('bullhorn')+' Official notices','notices')}</div><section class="COMM_HERO"><div class="COMM_HERO_COPY"><span>${fa('paw')} YOUR PET COMMUNITY</span><h2>Good conversations.<br>Happier pets.</h2><p>Ask questions, share moments, find your community, and stay informed with official CVO updates.</p></div><div class="COMM_HERO_DECOR" aria-hidden="true">${fa('paw')}</div><div class="COMM_HERO_BADGE">${fa('users')} ${channels.length} ${channels.length===1?'channel':'channels'} to discover</div></section><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_COMPOSER"><div class="COMM_COMPOSER_TOP"><span class="COMM_COMPOSER_AVATAR" data-community-avatar-user="${H(current.user.$id)}" data-community-avatar-self="1" aria-label="My profile picture">${avatar(current.user.name||current.user.email)}</span><button type="button" class="COMM_COMPOSER_PROMPT" data-community-action="${canCompose?'newFeedPost':canParticipate()?'feed':'goProfile'}">${canCompose?`What's happening in the pet community?`:'Explore posts from pet owners around Iligan City'}</button></div><div class="COMM_COMPOSER_FOOT"><span>${fa('images')} Share photos and stories</span>${canCompose?button(fa('pen')+' Create a post','newFeedPost','','primary small'):canParticipate()?`<span>${fa('eye')} Only seen-only channels available</span>`:`<span>${fa('lock')} Verified members can post</span>`}</div></section><div class="COMM_FEED_TITLE"><div><h2>Latest discussions</h2><p>From public and accessible community channels</p></div><span class="COMM_FEED_COUNT" id="commPostCount">${fa('spinner fa-spin')} Loading</span></div><div id="commFeedPosts" class="COMM_POST_LIST"><div class="COMM_LOADING">${fa('spinner fa-spin')} Loading discussions…</div></div></main>${officialPreview()}</div></div>`;
       bindSearch();
     }
     const at=revision,results=await Promise.allSettled(activeChannels.slice(0,8).map(c=>action('Channel',{channelId:c.id})));
@@ -222,14 +292,22 @@
   }
   function bindSearch(){const input=container.querySelector('#communitySearchInput');if(!input)return;input.addEventListener('keydown',async e=>{if(e.key==='Enter'){e.preventDefault();searchQuery=input.value.trim();if(searchQuery.length<2){message('Enter at least 2 characters.');return;}section='search';await refresh();}});}
   async function renderSearch(q){const data=await action('Search',{query:q});container.innerHTML=header('Search results',`Matches for “${q}”`,button('Back to Community','feed'))+`<div id="communityNotice" hidden></div><div class="COMM_LAYOUT"><aside class="COMM_SIDEBAR"><h2>Channels</h2>${data.channels?.length?data.channels.map(channelCard).join(''):blank('No matching channels.')}</aside><div class="COMM_MAIN"><h2>Discussions</h2>${data.posts?.length?data.posts.map(p=>postCard(p,true)).join(''):blank('No matching public or accessible discussions.')}</div></div>`;}
-  async function renderChannel(channelId){const data=await action('Channel',{channelId});if(!active)return;const c=data.channel;selected=c.id;section='channel';const canWrite=(admin||officer||(owner&&data.verified))&&c.canRead;
+  async function renderChannel(channelId){const data=await action('Channel',{channelId});if(!active)return;const c=data.channel;selected=c.id;section='channel';const canWrite=c.canPost!==undefined?Boolean(c.canPost):((admin||officer||(owner&&data.verified))&&c.canRead);
     const meta=privacyMeta(c.privacy);
-    const privacyBtn=admin?button(fa('sliders')+' Visibility','changeVisibility','',''):c.isCreator?button(c.privacy==='public'?'Make private':'Make public','togglePrivacy','',''):'';
+    const privacyBtn=admin?button(fa('sliders')+' Visibility & rules','changeVisibility','',''):c.isCreator?button(c.privacy==='public'?'Make private':'Make public','togglePrivacy','',''):'';
     const membersBtn=(admin||c.isCreator)&&(c.privacy==='invite'||c.privacy==='private')?button(fa('user-plus')+' Manage members','manageMembers','',''):'';
     const reqBtn=(admin||c.isCreator)&&c.privacy==='private'?button('Join requests','joinRequests','',''):'';
     const tools=`${canWrite?button(fa('pen-to-square')+' New discussion','newPost','','primary'):''}${privacyBtn}${membersBtn}${reqBtn}${(c.isCreator||admin)?button(fa('trash')+' Delete channel','deleteChannel',`data-id="${H(c.id)}"`,'danger'):''}`;
-    const privacyBadge=`<span class="COMM_TAG ${meta.locked?'locked':''}">${fa(meta.icon==='hashtag'?'globe':meta.icon)} ${H(meta.label)}</span>`;
-    container.innerHTML=`<div class="COMM_PAGE COMM_CHANNEL_PAGE">${header('Community', 'Your place to connect with pet people.',button(fa('arrow-left')+' Back to feed','feed','','small'))}<div id="communityNotice" hidden></div><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_CHANNEL_BANNER"><span class="COMM_CHANNEL_BIGICON">${fa(meta.icon)}</span><div><div class="COMM_CHANNEL_BANNER_META">Community channel ${privacyBadge}</div><h2>${H(c.name)}</h2><p>${H(c.description||'Connect with the pet owner community.')}</p></div></section><div class="COMM_CHANNEL_TOOLS">${tools}</div>${owner&&!data.verified?verifiedNotice():''}${!c.canRead?`<section class="COMM_LOCKED">${fa('lock')}<h2>This community is private</h2><p>Only approved members can read or participate. The channel creator reviews join requests.</p>${(owner||officer)&&c.membership==='none'?button('Request to join','requestJoin','','primary'):c.membership==='pending'?'<span class="COMM_TAG">Membership request pending</span>':(owner||officer)&&c.membership==='rejected'?button('Request again','requestJoin','','primary'):''}</section>`:`<section class="COMM_DISCUSSIONS"><div class="COMM_FEED_TITLE"><div><h2>Discussions</h2><p>Conversations in this channel</p></div><span class="COMM_FEED_COUNT">${data.posts.length} ${data.posts.length===1?'post':'posts'}</span></div><div class="COMM_POST_LIST">${data.posts.length?data.posts.map(p=>postCard({...p,channelName:c.name})).join(''):`<div class="COMM_FEED_EMPTY"><div class="COMM_FEED_EMPTY_ART">${fa('comment-dots')}</div><h3>No discussions yet</h3><p>Be the first to start a conversation in this community.</p>${canWrite?button('Start a discussion','newPost','','primary'):''}</div>`}</div></section>`}</main>${officialPreview()}</div></div>`;
+    const privacyBadge=`<span class="COMM_TAG ${meta.locked?'locked':''}">${fa(meta.icon==='hashtag'?'globe':meta.icon)} ${H(meta.label)}</span>${policyTagsHtml(c)}`;
+    let policyBanner='';
+    if(c.canRead&&!canWrite&&c.postRestrictionReason){
+      const title=c.postPolicy==='missing_pet'?'Automated Missing Pet Channel':c.postPolicy==='verified_pet'?'Conditional Channel · Verified Pet Required':'Seen-Only Channel';
+      const commentHint=c.commentPolicy==='admin'?' Comments are also disabled (Admins only).':c.commentPolicy==='staff'?' Only CVO Staff may comment.':' You can still read and comment on posts below.';
+      policyBanner=`<div class="COMM_POLICY_BANNER">${fa(c.postPolicy==='missing_pet'?'magnifying-glass-location':'eye')}<div><strong>${H(title)}</strong><p>${H(c.postRestrictionReason)}${c.canComment===false||c.postPolicy==='missing_pet'?'':commentHint}</p></div></div>`;
+    }else if(c.canRead&&c.canComment===false&&c.commentRestrictionReason){
+      policyBanner=`<div class="COMM_POLICY_BANNER">${fa('comment-slash')}<div><strong>Commenting Restricted</strong><p>${H(c.commentRestrictionReason)}</p></div></div>`;
+    }
+    container.innerHTML=`<div class="COMM_PAGE COMM_CHANNEL_PAGE">${header('Community', 'Your place to connect with pet people.',button(fa('arrow-left')+' Back to feed','feed','','small'))}<div id="communityNotice" hidden></div><div class="COMM_SOCIAL_GRID">${channelRail()}<main class="COMM_FEED_COLUMN"><section class="COMM_CHANNEL_BANNER"><span class="COMM_CHANNEL_BIGICON">${fa(meta.icon)}</span><div><div class="COMM_CHANNEL_BANNER_META">Community channel ${privacyBadge}</div><h2>${H(c.name)}</h2><p>${H(c.description||'Connect with the pet owner community.')}</p></div></section><div class="COMM_CHANNEL_TOOLS">${tools}</div>${policyBanner}${owner&&!data.verified?verifiedNotice():''}${!c.canRead?`<section class="COMM_LOCKED">${fa('lock')}<h2>This community is private</h2><p>Only approved members can read or participate. The channel creator reviews join requests.</p>${(owner||officer)&&c.membership==='none'?button('Request to join','requestJoin','','primary'):c.membership==='pending'?'<span class="COMM_TAG">Membership request pending</span>':(owner||officer)&&c.membership==='rejected'?button('Request again','requestJoin','','primary'):''}</section>`:`<section class="COMM_DISCUSSIONS"><div class="COMM_FEED_TITLE"><div><h2>Discussions</h2><p>Conversations in this channel</p></div><span class="COMM_FEED_COUNT">${data.posts.length} ${data.posts.length===1?'post':'posts'}</span></div><div class="COMM_POST_LIST">${data.posts.length?data.posts.map(p=>postCard({...p,channelName:c.name})).join(''):`<div class="COMM_FEED_EMPTY"><div class="COMM_FEED_EMPTY_ART">${fa('comment-dots')}</div><h3>No discussions yet</h3><p>Be the first to start a conversation in this community.</p>${canWrite?button('Start a discussion','newPost','','primary'):''}</div>`}</div></section>`}</main>${officialPreview()}</div></div>`;
     bindSearch(); // refresh() handles photo hydration (avoids duplicate token requests).
   }
   function renderCommentItem(c,canInteract){
@@ -239,7 +317,8 @@
   async function syncOpenComments(postId,dialog){
     const data=await action('Comments',{postId});
     if(!dialog?.isConnected)return;
-    const canInteract=canParticipate()&&!!overview?.channels?.find(c=>c.id===selected&&c.canRead);
+    const chObj=overview?.channels?.find(c=>c.id===selected);
+    const canInteract=canParticipate()&&(data.canComment!==undefined?Boolean(data.canComment):(chObj?chObj.canRead&&chObj.canComment!==false:true));
     const listEl=dialog.querySelector('.COMM_COMMENTS');
     if(listEl){
       const comments=data.comments||[];
@@ -247,10 +326,13 @@
       hydrateAvatars(dialog);
     }
   }
-  async function showComments(postId){selectedPost=postId;const data=await action('Comments',{postId});const canInteract=canParticipate()&&!!overview.channels.find(c=>c.id===selected&&c.canRead);
+  async function showComments(postId){selectedPost=postId;if(!myTagPets.length)void loadMyTagPets();const data=await action('Comments',{postId});
+   const chObj=overview?.channels?.find(c=>c.id===selected);
+   const canInteract=canParticipate()&&(data.canComment!==undefined?Boolean(data.canComment):(chObj?chObj.canRead&&chObj.canComment!==false:true));
+   const noCommentMsg=data.commentRestrictionReason||'Only verified members with access can comment.';
    const comments=data.comments||[];
-   modal(`Discussion · ${data.post.title}`,`<div class="COMM_COMMENTS">${comments.map(c=>renderCommentItem(c,canInteract)).join('')||blank('No comments yet.')}</div>${canInteract?`<div id="commReplyBanner" class="COMM_REPLY_BANNER" hidden>Replying to a comment <button type="button" data-cancel-reply>Cancel reply</button></div><input type="hidden" name="parentCommentId" value=""><label>Write a comment<textarea name="body" maxlength="2000" rows="4" placeholder="Be respectful and helpful" required></textarea></label>`:'<p class="COMM_MUTED">Only verified members with access can comment.</p>'}`,async form=>{
-     if(!canInteract){throw Error('Verified membership required to comment.');}
+   modal(`Discussion · ${data.post.title}`,`<div class="COMM_COMMENTS">${comments.map(c=>renderCommentItem(c,canInteract)).join('')||blank('No comments yet.')}</div>${canInteract?`<div id="commReplyBanner" class="COMM_REPLY_BANNER" hidden>Replying to a comment <button type="button" data-cancel-reply>Cancel reply</button></div><input type="hidden" name="parentCommentId" value="">${tagChipsHtml('comment')}<label>Write a comment<textarea name="body" maxlength="2000" rows="4" placeholder="Be respectful and helpful" required></textarea></label>`:`<p class="COMM_MUTED">${H(noCommentMsg)}</p>`}`,async form=>{
+     if(!canInteract){throw Error(noCommentMsg);}
      const fd=new FormData(form);
      await action('CreateComment',{postId,body:fd.get('body'),parentCommentId:fd.get('parentCommentId')||''});
      await refresh(true);
@@ -259,7 +341,10 @@
    const dialog=document.querySelector('.COMM_MODAL');
    if(dialog)dialog.dataset.commentsPostId=postId;
    hydrateAvatars(dialog||container);const submit=dialog?.querySelector('[type="submit"]');if(!canInteract&&submit)submit.hidden=true;
-   dialog?.addEventListener('click',async e=>{if(e.target.closest('[data-cancel-reply]')){dialog.querySelector('[name=parentCommentId]').value='';dialog.querySelector('#commReplyBanner').hidden=true;return;}const b=e.target.closest('[data-community-action]');if(!b)return;
+   dialog?.addEventListener('click',async e=>{
+     const tagBtn=e.target.closest('[data-tag-pet][data-tag-mode="comment"]');
+     if(tagBtn){const pet=myTagPets.find(p=>p.$id===tagBtn.dataset.tagPet),ta=dialog.querySelector('textarea[name=body]');if(pet&&ta){const snip=formatPetTagCard(pet,'compact');ta.value=(ta.value.trim()?`${ta.value.trim()}\n${snip}`:snip).slice(0,2000);ta.focus();}return;}
+     if(e.target.closest('[data-cancel-reply]')){dialog.querySelector('[name=parentCommentId]').value='';dialog.querySelector('#commReplyBanner').hidden=true;return;}const b=e.target.closest('[data-community-action]');if(!b)return;
      b.disabled=true;try{const kind=b.dataset.communityAction,cid=b.dataset.id;
        if(kind==='commentVoteUp'||kind==='commentVoteDown')await action('Vote',{targetType:'comment',targetId:cid,value:kind==='commentVoteUp'?1:-1});
        if(kind==='removeComment'&&confirm('Remove this comment?'))await action('DeleteComment',{commentId:cid});
@@ -284,15 +369,52 @@
   function privacyOptionsHtml(current='public'){
     return `<option value="public" ${current==='public'?'selected':''}>Public — anyone can read</option><option value="private" ${current==='private'?'selected':''}>Private — creator approves members</option>${admin?`<option value="staff" ${current==='staff'?'selected':''}>Hidden — Field Officers &amp; Admins only</option><option value="invite" ${current==='invite'?'selected':''}>Hidden — Invited members only</option>`:''}`;
   }
-  function submitChannel(){modal('Create a community channel',`<label>Channel name<input name="name" maxlength="80" required placeholder="e.g. Iligan Pet Parents"></label><label>Description<textarea name="description" maxlength="300" rows="3" placeholder="What is this community about?"></textarea></label><label>Visibility<select name="privacy">${privacyOptionsHtml('public')}</select></label>`,async form=>{
-    const d=Object.fromEntries(new FormData(form));const ch=await action('CreateChannel',d);selected=ch.id;section='channel';await refresh(true);},'Create channel');}
+  const postPolicyHint=p=>({
+    everyone:'All verified members who can view this channel may create discussions.',
+    admin:'Seen-only: only CVO Administrators can publish posts here.',
+    staff:'Seen-only: only CVO Administrators and Field Officers can publish posts here.',
+    verified_pet:'Conditional: only CVO staff and Pet Owners with at least one CVO-verified pet can post.',
+    missing_pet:'Conditional: manual posting is disabled for Pet Owners; posts are created when declaring a pet missing or reporting a sighting.'
+  }[p||'everyone']||'');
+  const commentPolicyHint=c=>({
+    everyone:'All verified members who can view this channel can comment and reply.',
+    staff:'Only CVO Administrators and Field Officers can comment or reply.',
+    admin:'Comments disabled for members (strict seen-only mode; only Admins can comment).'
+  }[c||'everyone']||'');
+  function adminRuleFieldsHtml(postVal='everyone',commentVal='everyone'){
+    if(!admin)return '';
+    const postOpts=[
+      ['everyone','Everyone with access (standard discussion channel)'],
+      ['admin','Seen-only — Admins only can post'],
+      ['staff','Seen-only — Admins & Field Officers only can post'],
+      ['verified_pet','Conditional — Pet Owners with a CVO-verified pet & staff'],
+      ['missing_pet','Conditional — Missing Pet declarations & sightings only']
+    ].map(([v,l])=>`<option value="${v}" ${(postVal||'everyone')===v?'selected':''}>${l}</option>`).join('');
+    const commentOpts=[
+      ['everyone','Everyone with access can comment'],
+      ['staff','Only Admins & Field Officers can comment'],
+      ['admin','Comments disabled for members (Admins only)']
+    ].map(([v,l])=>`<option value="${v}" ${(commentVal||'everyone')===v?'selected':''}>${l}</option>`).join('');
+    return `<label>Who can create posts?<select name="postPolicy" id="commPostPolicySelect">${postOpts}</select></label><label>Who can comment on posts?<select name="commentPolicy" id="commCommentPolicySelect">${commentOpts}</select></label><div id="commPolicyPreview" class="COMM_POLICY_PREVIEW"></div>`;
+  }
+  function bindPolicyPreview(){
+    const dialog=document.querySelector('.COMM_MODAL');
+    if(!dialog||!admin)return;
+    const pSel=dialog.querySelector('#commPostPolicySelect'),cSel=dialog.querySelector('#commCommentPolicySelect'),box=dialog.querySelector('#commPolicyPreview');
+    if(!pSel||!cSel||!box)return;
+    const update=()=>{box.innerHTML=`<strong>Effective rule</strong><div>• <b>Posts:</b> ${H(postPolicyHint(pSel.value))}</div><div>• <b>Comments:</b> ${H(commentPolicyHint(cSel.value))}</div>`;};
+    pSel.addEventListener('change',update);cSel.addEventListener('change',update);update();
+  }
+  function submitChannel(){modal('Create a community channel',`<label>Channel name<input name="name" maxlength="80" required placeholder="e.g. Iligan Pet Parents"></label><label>Description<textarea name="description" maxlength="300" rows="3" placeholder="What is this community about?"></textarea></label><label>Visibility<select name="privacy">${privacyOptionsHtml('public')}</select></label>${adminRuleFieldsHtml('everyone','everyone')}`,async form=>{
+    const d=Object.fromEntries(new FormData(form));const ch=await action('CreateChannel',d);selected=ch.id;section='channel';await refresh(true);message('Community channel created.',true);},'Create channel');bindPolicyPreview();}
   function showVisibilityModal(ch){
-    modal(`Channel visibility · #${ch?.name||'channel'}`,`<label>Visibility<select name="privacy">${privacyOptionsHtml(ch?.privacy||'public')}</select></label><p class="COMM_MUTED">Hidden channels do not appear in the channel list for users without access.</p>`,async form=>{
+    modal(`Visibility & rules · #${ch?.name||'channel'}`,`<label>Visibility<select name="privacy">${privacyOptionsHtml(ch?.privacy||'public')}</select></label>${adminRuleFieldsHtml(ch?.postPolicy||'everyone',ch?.commentPolicy||'everyone')}<p class="COMM_MUTED">Hidden channels do not appear in the channel list for users without access.</p>`,async form=>{
       const d=Object.fromEntries(new FormData(form));
-      await action('SetPrivacy',{channelId:selected,privacy:d.privacy});
+      await action('SetPrivacy',{channelId:selected,privacy:d.privacy,...(admin?{postPolicy:d.postPolicy,commentPolicy:d.commentPolicy}:{})});
       await refresh(true);
-      message(`Channel visibility updated.`,true);
-    },'Save visibility');
+      message(`Channel visibility and rules updated.`,true);
+    },'Save changes');
+    bindPolicyPreview();
   }
   async function showManageMembers(){
     const data=await action('ChannelMembers',{channelId:selected});
@@ -320,11 +442,42 @@
       }catch(err){alert(handlerErr(err));b.disabled=false;}
     });
   }
-  function submitPost(fromFeed=false){
-   const choices=(overview?.channels||[]).filter(c=>c.canRead),channelSelect=fromFeed?`<label>Post to community<select name="channelId" required>${choices.map(c=>`<option value="${H(c.id)}">${H(c.name)}</option>`).join('')}</select></label>`:'';
-   if(fromFeed&&!choices.length){message('Create or join a community channel before posting.');return;}
-   modal('Start a discussion',`${channelSelect}<label>Discussion title<input name="title" maxlength="140" placeholder="What would you like to ask or share?" required></label><label>Discussion<textarea name="body" maxlength="5000" rows="6" placeholder="Share your story, advice or question…" required></textarea></label><label>Photos (optional, up to 4)<input name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple><span class="COMM_MUTED">Each image must be smaller than 5 MB. Images in private channels remain private.</span></label>`,async form=>{
-     const fd=new FormData(form),files=form.querySelector('[name="images"]').files;const imageFileIds=await uploadFiles(files);const channelId=fromFeed?fd.get('channelId'):selected;await action('CreatePost',{channelId,title:fd.get('title'),body:fd.get('body'),imageFileIds});if(fromFeed){section='feed';await refresh(true);}else{await renderChannel(selected);hydrateImages();hydrateAvatars();}},'Publish discussion');}
+  function submitPost(fromFeed=false,draft=null){
+   if(!canParticipate()){message('Verify your Pet Owner account first to publish Community discussions.');return;}
+   const isMissingDraft=Boolean(draft?.missingPetId||draft?.sightingPetId);
+   const canUseChoice=c=>c.canRead&&(c.canPost!==false||(isMissingDraft&&c.postPolicy==='missing_pet'));
+   const choices=(overview?.channels||[]).filter(canUseChoice);
+   if(!fromFeed){
+     const cur=(overview?.channels||[]).find(c=>c.id===selected);
+     if(cur&&!canUseChoice(cur)){message(cur.postRestrictionReason||'You cannot publish new discussions in this channel.');return;}
+   }
+   if(fromFeed&&!choices.length){message('No postable community channels are available for your account.');return;}
+   const preferredCh=draft?.channelId?choices.find(c=>c.id===draft.channelId):pickDraftChannel(draft?.preferredChannelMatch);
+   const defaultChId=(preferredCh&&canUseChoice(preferredCh)?preferredCh.id:choices[0]?.id)||'';
+   const channelSelect=fromFeed?`<label>Post to community<select name="channelId" required>${choices.map(c=>`<option value="${H(c.id)}" ${c.id===defaultChId?'selected':''}>${H(c.name)}</option>`).join('')}</select></label>`:'';
+   const attachPetPhotoOpt=draft?.imageFileId?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600"><input type="checkbox" name="includePetPhoto" checked style="width:16px;height:16px"> Attach registered pet photo automatically (when owned by your account)</label>`:'';
+   modal('Start a discussion',`${channelSelect}<label>Discussion title<input name="title" maxlength="140" value="${H(draft?.title||'')}" placeholder="What would you like to ask or share?" required></label>${tagChipsHtml('post')}<label>Discussion<textarea name="body" maxlength="5000" rows="6" placeholder="Share your story, advice or question…" required>${H(draft?.body||'')}</textarea></label>${attachPetPhotoOpt}<label>Photos (optional, up to 4)<input name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple><span class="COMM_MUTED">Each image must be smaller than 5 MB. Images in private channels remain private.</span></label>`,async form=>{
+     const fd=new FormData(form),files=form.querySelector('[name="images"]').files;const uploaded=await uploadFiles(files);const channelId=fromFeed?fd.get('channelId'):selected;
+     const includeDraftImg=Boolean(draft?.imageFileId&&form.elements.includePetPhoto?.checked);
+     const combined=includeDraftImg?[draft.imageFileId,...uploaded.filter(fid=>fid!==draft.imageFileId)].slice(0,4):uploaded;
+     const extra={};
+     if(draft?.missingPetId)extra.missingPetId=draft.missingPetId;
+     if(draft?.sightingPetId)extra.sightingPetId=draft.sightingPetId;
+     try{await action('CreatePost',{channelId,title:fd.get('title'),body:fd.get('body'),imageFileIds:combined,...extra});}
+     catch(err){if(includeDraftImg&&combined.length>uploaded.length){await action('CreatePost',{channelId,title:fd.get('title'),body:fd.get('body'),imageFileIds:uploaded,...extra});}else throw err;}
+     if(fromFeed){section='feed';await refresh(true);}else{await renderChannel(selected);hydrateImages();hydrateAvatars();}
+   },'Publish discussion');
+   const dialog=document.querySelector('.COMM_MODAL');
+   dialog?.addEventListener('click',e=>{
+     const btn=e.target.closest('[data-tag-pet][data-tag-mode="post"]');if(!btn)return;
+     const pet=myTagPets.find(p=>p.$id===btn.dataset.tagPet);if(!pet)return;
+     const titleEl=dialog.querySelector('input[name=title]'),bodyEl=dialog.querySelector('textarea[name=body]');
+     if(titleEl&&!titleEl.value.trim()){
+       titleEl.value=(pet.vitalStatus==='Missing'?`[MISSING PET] ${pet.petName} (${pet.species||'Pet'}) — Brgy. ${pet.barangay||'Iligan City'}`:`${pet.petName} — ${pet.species||'Pet'} Update`).slice(0,140);
+     }
+     if(bodyEl){const card=formatPetTagCard(pet,'full');bodyEl.value=(bodyEl.value.trim()?`${bodyEl.value.trim()}\n\n${card}`:card).slice(0,5000);bodyEl.focus();}
+   });
+  }
   function submitAnnouncement(){
     const brgyNames=window.CityVetBarangays?.names||[];
     const brgyOptions=`<option value="">All barangays (Citywide)</option>`+brgyNames.map(b=>`<option value="${H(b)}">${H(b)}</option>`).join('');
@@ -377,7 +530,7 @@
     await refresh(true);
     if(postId){try{await showComments(postId);}catch{}}
   }
-  return {open,close,search,refresh,focusTarget};
+  return {open,close,search,refresh,focusTarget,openWithDraft};
  }
  window.CityVetCommunity=Object.freeze({mount});
 })();

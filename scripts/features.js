@@ -127,14 +127,24 @@
    function open(key){const same=active===key&&container.querySelector('.CV_WORKSPACE');active=key;filter='';return refresh(Boolean(same));}
    function search(s){filter=s.toLowerCase().trim();if(active)refresh(true);}
    async function medical(){
-     const [records,pets,profiles,uploads,staffDirectory,userProfiles]=await Promise.all([
+     const [records,pets,profiles,uploads,staffDirectory,userProfiles,publicPassports,staffSelf]=await Promise.all([
        fetchTable('medical'),fetchTable('pets'),fetchTable('petProfiles').catch(()=>[]),
        owner?fetchTable('petHealthUploads').catch(()=>[]):Promise.resolve([]),
        (admin||officer)?api.operate('getStaffPetDirectory').catch(e=>{console.warn('Staff directory unavailable:',e.message);return {pets:[]};}):Promise.resolve({pets:[]}),
-       admin?fetchTable('userProfiles').catch(()=>[]):Promise.resolve([])
+       admin?fetchTable('userProfiles').catch(()=>[]):Promise.resolve([]),
+       (admin||officer)?api.tablesDB.listRows({databaseId:cfg.databaseId,tableId:cfg.tables.passports,queries:[window.Appwrite.Query.limit(100)]}).then(r=>r.rows||[]).catch(()=>[]):Promise.resolve([]),
+       (admin||officer)?api.tablesDB.getRow({databaseId:cfg.databaseId,tableId:cfg.tables.userProfiles,rowId:current.user.$id}).catch(()=>null):Promise.resolve(null)
      ]);
      const staffById=new Map((staffDirectory.pets||[]).map(p=>[p.$id,p]));
      const userProfileById=new Map((userProfiles||[]).map(u=>[u.$id,u]));
+     const missingPassportById=new Map();
+     const isPassportMissing=doc=>doc?.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(String(doc?.lostFoundMessage||''));
+     for(const doc of publicPassports||[]){
+       if(isPassportMissing(doc)){
+         missingPassportById.set(doc.$id,doc);
+         if(doc.petId)missingPassportById.set(doc.petId,doc);
+       }
+     }
      const authorLookup=(admin||officer)&&records.length?await api.operate('resolveMedicalRecorders',{recordIds:records.slice(0,100).map(r=>r.$id)}).catch(e=>{console.warn('Medical recorder lookup unavailable:',e.message);return {recorders:[]};}):{recorders:[]};
      const recorderByRecord=new Map((authorLookup.recorders||[]).map(r=>[r.recordId,r.recorderName]));
      cache.medical=records;cache.pets=pets;
@@ -142,23 +152,37 @@
      const petById=new Map(pets.map(p=>[p.$id,p]));
      const staffPets=[];
      const seenPetIds=new Set();
+     const applyMissingPass=row=>{
+       const mp=missingPassportById.get(row.petProfileId)||missingPassportById.get(row.$id);
+       const isMiss=Boolean(mp)||isPassportMissing(row);
+       if(!isMiss)return {...row,isMissing:false};
+       const cleanNote=String(mp?.lostFoundMessage||row.lostFoundMessage||'').replace(/^\[MISSING\]\s*/i,'').trim();
+       return {...row,isMissing:true,lostFoundMessage:cleanNote,contact:mp?.contact||row.contact||'',displayAddress:mp?.displayAddress||row.displayAddress||'',ownerName:row.ownerName||mp?.ownerName||'Pet Owner'};
+     };
      for(const p of pets){
        seenPetIds.add(p.$id);
        if(p.petProfileId)seenPetIds.add(p.petProfileId);
-       staffPets.push({...p,verificationStatus:'verified'});
+       staffPets.push(applyMissingPass({...p,verificationStatus:'verified'}));
      }
      for(const sp of staffDirectory.pets||[]){
        if(seenPetIds.has(sp.$id)||(sp.petProfileId&&seenPetIds.has(sp.petProfileId)))continue;
        seenPetIds.add(sp.$id);
        if(sp.petProfileId)seenPetIds.add(sp.petProfileId);
-       staffPets.push({...sp,verificationStatus:sp.verificationStatus||'draft'});
+       staffPets.push(applyMissingPass({...sp,verificationStatus:sp.verificationStatus||'draft'}));
      }
      for(const prof of profiles){
        if(seenPetIds.has(prof.$id))continue;
        seenPetIds.add(prof.$id);
        const ownerName=userProfileById.get(prof.ownerId)?.fullName||staffById.get(prof.$id)?.ownerName||'Pet Owner';
-       staffPets.push({...prof,ownerName,verificationStatus:prof.verificationStatus||'draft'});
+       staffPets.push(applyMissingPass({...prof,ownerName,verificationStatus:prof.verificationStatus||'draft'}));
      }
+     for(const mp of publicPassports||[]){
+       if(!isPassportMissing(mp)||seenPetIds.has(mp.$id)||(mp.petId&&seenPetIds.has(mp.petId)))continue;
+       seenPetIds.add(mp.$id);
+       if(mp.petId)seenPetIds.add(mp.petId);
+       staffPets.push(applyMissingPass({...mp,petProfileId:mp.$id,verificationStatus:mp.verificationStatus||'draft',ownerName:mp.ownerName||'Private owner'}));
+     }
+     staffPets.sort((a,b)=>Number(Boolean(b.isMissing))-Number(Boolean(a.isMissing)));
      // A successful adoption changes CURRENT ownership, not the pet or medical IDs.
      // Never infer access to a pet from a historical medical-record permission.
      const ownedProfiles=profiles.filter(p=>p.ownerId===current.user.$id);
@@ -184,9 +208,10 @@
      };
      const petRow=record=>petById.get(record.petId)||profileById.get(record.petId)||staffById.get(record.petId)||{petName:'Pet record',species:'',breed:''};
      const roster=owner?family:staffPets;
-     view(header('CLINICAL WORKSPACE','Medical & Vaccination',owner?'Your pets and their authorized CVO records. Personal photo documents are shown separately from official medical records.':'Pet-centered CVO medical history, vaccinations and treatment activity.',(admin||officer)?action('addMedical','Record treatment','fa-notes-medical'):'')+
+     const missingRosterCount=!owner?roster.filter(p=>p.isMissing).length:0;
+     view(header('CLINICAL WORKSPACE','Medical & Vaccination',owner?'Your pets and their authorized CVO records. Personal photo documents are shown separately from official medical records.':'Pet-centered CVO medical history, vaccinations and missing-pet field recovery actions.',(admin||officer)?action('addMedical','Record treatment','fa-notes-medical'):'')+
        
-       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><div><h3>${owner?'My pets':'Pet directory'}</h3><small class="CV49_SUB_HINT">Click any pet card to filter official veterinary records below</small></div><span>${roster.length} accessible pets</span></div><div class="CV49_PET_DIRECTORY" id="medPetDirectory">${roster.length?roster.map(p=>`<article class="CV49_DIRECTORY_CARD CV49_CLICKABLE_PET" tabindex="0" role="button" data-pet-id="${h(p.$id)}" data-pet-name="${h(p.petName)}" data-species="${h(p.species||'')}" data-status="${p.verificationStatus==='verified'||petById.has(p.$id)?'Verified':'Unverified'}" data-barangay="${h(p.barangay||'Unspecified')}" data-owner="${h(p.ownerName||'')}" title="Click to filter records for ${h(p.petName)}">${owner?image(p.photoFileId||petPhoto(p),'CV49_DIRECTORY_PHOTO'):staffPhoto(p)}<div><strong>${h(p.petName)}</strong><small>${h(p.species)} · ${h(p.breed)}</small>${!owner&&p.ownerName?`<small><i class="fa-regular fa-user"></i> ${h(p.ownerName)}</small>`:''}<span>${h(p.barangay||'Barangay unspecified')}</span></div><div class="CV49_CARD_SIDE">${p.verificationStatus==='verified'||petById.has(p.$id)?pill('Verified'):pill('Unverified')}${(admin||officer)?`<button type="button" class="CV_BUTTON CV_SOFT CV49_QUICK_TREAT" data-ctrl="treatPet" data-pet-id="${h(p.$id)}" title="Record treatment for ${h(p.petName)}"><i class="fa-solid fa-syringe"></i> Treat</button>`:''}</div></article>`).join(''):blank('Your pet records will appear here.')}</div></div>`+
+       `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><div><h3>${owner?'My pets':'Pet directory'}</h3><small class="CV49_SUB_HINT">Click any pet card to filter official veterinary records below${missingRosterCount?` · ${missingRosterCount} active missing`:''}</small></div><span>${roster.length} accessible pets</span></div><div class="CV49_PET_DIRECTORY" id="medPetDirectory">${roster.length?roster.map(p=>`<article class="CV49_DIRECTORY_CARD CV49_CLICKABLE_PET ${p.isMissing?'is-missing':''}" tabindex="0" role="button" data-pet-id="${h(p.$id)}" data-pet-name="${h(p.petName)}" data-species="${h(p.species||'')}" data-status="${p.verificationStatus==='verified'||petById.has(p.$id)?'Verified':'Unverified'}" data-barangay="${h(p.barangay||'Unspecified')}" data-owner="${h(p.ownerName||'')}" title="Click to filter records for ${h(p.petName)}">${owner?image(p.photoFileId||petPhoto(p),'CV49_DIRECTORY_PHOTO'):staffPhoto(p)}<div><strong>${h(p.petName)}</strong><small>${h(p.species)} · ${h(p.breed)}</small>${!owner&&p.ownerName?`<small><i class="fa-regular fa-user"></i> ${h(p.ownerName)}</small>`:''}<span>${h(p.barangay||'Barangay unspecified')}</span></div><div class="CV49_CARD_SIDE">${p.isMissing?`<span class="CV_PILL CV_MISSING_PILL"><span class="CV420_OUTBREAK_DOT CV420_DOT_ACTIVE"></span> MISSING</span>`:''}${p.verificationStatus==='verified'||petById.has(p.$id)?pill('Verified'):pill('Unverified')}${(admin||officer)?`${p.isMissing?`<button type="button" class="CV_BUTTON CV_DANGER_SOFT" data-ctrl="inspectMissing" data-pet-id="${h(p.$id)}" title="Missing recovery actions for ${h(p.petName)}"><i class="fa-solid fa-bell"></i> Recover</button>`:''}<button type="button" class="CV_BUTTON CV_SOFT CV49_QUICK_TREAT" data-ctrl="treatPet" data-pet-id="${h(p.$id)}" title="Record treatment for ${h(p.petName)}"><i class="fa-solid fa-syringe"></i> Treat</button>`:''}</div></article>`).join(''):blank('Your pet records will appear here.')}</div></div>`+
        `<div class="CV49_MODULE_SECTION" id="medRecordsSection"><div class="CV49_SECTION_HEAD"><h3>Official veterinary records</h3><span>CVO / authorized field staff entries</span></div>${table(['Pet','Record','Medicine / vaccine','Date','Expiry','Recorded by'],visible.map(r=>{const exp=splitExpiry(r.description,r.expiryDate).expiryDate;return tr([`<span class="CV49_CELL_FLEX">${owner?image(petPhoto(petRow(r)),'CV49_THUMB'):staffPhoto(petRow(r),'CV49_THUMB')}<span class="CV49_PET_CELL"><strong>${h(petRow(r).petName)}</strong><small>${h(petRow(r).breed||'')}</small></span></span>`,pill(r.recordType),h(r.medicineType),h(date(r.dateAdministered)),h(exp?date(exp):'—'),h(recorderByRecord.get(r.$id)||r.recorderNameSnapshot||(owner?'CVO staff':'Unknown staff member'))]);}))}</div>`+
        (owner?`<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>My uploaded health documents</h3><span>Personal evidence · not clinical certification</span></div><div class="CV49_DOC_GRID">${uploads.filter(x=>x.ownerId===current.user.$id&&currentPetIds.has(x.petProfileId)).map(x=>{const parsed=splitExpiry(x.title,x.expiryDate);return `<article class="CV49_DOC_CARD">${image(x.fileId,'CV49_DIRECTORY_PHOTO','fa-file-medical')}<div><strong>${h(parsed.text)}</strong><small>${h(date(x.recordDate))}${parsed.expiryDate?` · Expires ${h(date(parsed.expiryDate))}`:''}</small><span>${x.sharePublic?'Shared on QR with consent':'Private to your account'}</span></div></article>`;}).join('')||'<p class="CV_HINT">Add dated health documents from My Pets → View profile.</p>'}</div></div>`:'')+
        `<div class="CV49_MODULE_SECTION"><div class="CV49_SECTION_HEAD"><h3>Vaccination records by barangay</h3><span>Accessible verified-pet sample</span></div>${table(['Barangay','Verified pets','With vaccination entry','Coverage'],coverageRows)}</div>`+
@@ -231,9 +256,61 @@
          if(card){e.preventDefault();togglePetFilter(card);}
        }
      });
+     const openMissingRecoveryModal=targetId=>{
+       const p=staffPets.find(x=>x.$id===targetId||x.petProfileId===targetId);
+       if(!p)return;
+       const pid=p.petProfileId||p.$id;
+       const url=`./passport.html?pet=${encodeURIComponent(pid)}`;
+       const overlay=document.createElement('div');overlay.className='CV_MODAL';
+       overlay.innerHTML=`<div class="CV_MODAL_CARD P46_DIALOG" role="dialog" aria-modal="true"><div class="CV_MODAL_HEAD"><h3>Missing Pet Recovery · ${h(p.petName)}</h3><button type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button></div><div class="P46_MISSING_BANNER"><span class="CV420_OUTBREAK_DOT CV420_DOT_ACTIVE"></span><div><strong>DECLARED MISSING PET</strong><p>${h(p.lostFoundMessage||'This pet has been declared missing by its owner.')}</p></div></div><div class="P46_DETAIL_FIELDS" style="margin:12px 0"><div><span>Owner</span><strong>${h(p.ownerName||'Pet Owner')}</strong></div><div><span>Barangay</span><strong>${h(p.barangay||'Unspecified')}</strong></div><div><span>Owner-shared contact</span><strong>${h(p.contact||'Private on QR passport')}</strong></div><div><span>CVO Hotline (offline backup)</span><strong>(063) 221-6752</strong></div></div><div class="P46_SCAN_STATUS" id="featMissingAlertStatus" hidden></div><div class="CV_ACTION_BAR" style="flex-wrap:wrap"><button type="button" class="CV_BUTTON PRIMARY_ACTION" id="featNotifyOwnerBtn"><i class="fa-solid fa-bell"></i> Notify Owner I Located This Pet</button><button type="button" class="CV_BUTTON CV_SOFT" id="featPostSightingBtn"><i class="fa-solid fa-camera"></i> Post Sighting Photo</button>${p.contact?`<button type="button" class="CV_BUTTON CV_SOFT" id="featCopyPhoneBtn"><i class="fa-solid fa-copy"></i> Copy Owner Phone (${h(p.contact)})</button>`:''}<a class="CV_BUTTON CV_SOFT" href="${h(url)}" target="_blank" rel="noopener"><i class="fa-solid fa-qrcode"></i> Open Public QR</a></div></div>`;
+       overlay.addEventListener('click',e=>{if(e.target===overlay||e.target.closest('[data-close]'))overlay.remove();});
+       overlay.querySelector('#featCopyPhoneBtn')?.addEventListener('click',async()=>{
+         try{
+           if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(String(p.contact));
+           else{const t=document.createElement('textarea');t.value=String(p.contact);t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.select();document.execCommand('copy');t.remove();}
+           message('Owner phone copied.','success');
+         }catch{message('Could not copy phone automatically.','error');}
+       });
+       overlay.querySelector('#featNotifyOwnerBtn')?.addEventListener('click',async ev=>{
+         const btn=ev.currentTarget,out=overlay.querySelector('#featMissingAlertStatus');
+         btn.disabled=true;btn.textContent='Notifying owner…';
+         const cleanPh=String(staffSelf?.phone||'').replace(/[^+0-9]/g,'');
+         const name=staffSelf?.fullName||current.user?.name||current.user?.email||'Field Officer';
+         try{
+           const res=await api.operate('reportMissingPetScan',{petProfileId:pid,shareIdentity:true,shareContact:cleanPh.length>=7,scannerName:`${name} (CVO Field Officer)`,...(cleanPh.length>=7?{scannerContact:cleanPh}:{})});
+           out.hidden=false;
+           out.textContent=res?.notified?(res.scannerContact?`Owner alerted with your callback (${res.scannerContact}).`:'Owner alerted that CVO Field Staff located this pet.'):res?.reason==='deduplicated'?'Owner was already notified within the last 5 mins.':res?.reason==='self_scan'?'This is your own missing pet.':'Alert processed.';
+         }catch(err){out.hidden=false;out.textContent=api.readableError(err);}
+         finally{btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-bell"></i> Notify Owner I Located This Pet';}
+       });
+       overlay.querySelector('#featPostSightingBtn')?.addEventListener('click',()=>{
+         overlay.remove();
+         const absUrl=new URL('./passport.html',document.baseURI);absUrl.searchParams.set('pet',pid);
+         window.CityVetOpenCommunityDraft?.({
+           draftKey:String(Date.now()),
+           title:`[SIGHTING] ${p.petName||'Pet'} (${p.species||'Pet'}) spotted near ${p.barangay||'Iligan City'}`.slice(0,140),
+           body:[
+             `MISSING PET SIGHTING REPORT — ${p.petName||'Companion Pet'}`,
+             `• Spotted At / Landmark: (Describe exact street or barangay landmark here)`,
+             `• Condition / Notes: (Describe behavior, direction headed, or collar)`,
+             '',
+             'Passport Reference:',
+             `• Pet: ${p.petName||'Pet'} (${p.species||'Pet'} · ${p.breed||'Mixed'})`,
+             `• Registered Barangay: Brgy. ${p.barangay||'Iligan City'}, Iligan City`,
+             p.officialRegistryId?`• Official ID: ${p.officialRegistryId}`:null,
+             p.contact?`• Owner Contact: ${p.contact}`:null,
+             `• QR Passport: ${absUrl.href}`
+           ].filter(v=>v!==null).join('\n').slice(0,5000),
+           sightingPetId:pid,
+           preferredChannelMatch:'missing'
+         });
+       });
+       document.body.append(overlay);
+     };
      bind((ctrl,b)=>{
        if(ctrl==='addMedical')openTreatmentModal();
        if(ctrl==='treatPet')openTreatmentModal(b.dataset.petId||'');
+       if(ctrl==='inspectMissing')openMissingRecoveryModal(b.dataset.petId||'');
      });
    }
    async function surveillance(){

@@ -196,3 +196,21 @@
 .COMM_AVATAR_DIAGNOSTIC{padding:9px 13px;margin:9px 13px 0;border:1px solid #f0c57f;background:#fff7e7;color:#8a5300;font-size:11px;line-height:1.45;border-radius:9px}
 .dark-theme .COMM_AVATAR_DIAGNOSTIC{background:#392d1c;border-color:#6e5425;color:#ffdc9d}
 .COMM_INVITE_RESULTS{max-height:190px;overflow-y:auto;margin-top:6px}
+.COMM_TAG_STRIP{display:grid;gap:6px;margin:4px 0 8px}
+.COMM_TAG_STRIP>span{font-size:11px;font-weight:750;color:var(--sub);display:inline-flex;align-items:center;gap:6px}
+.COMM_TAG_CHIPS{display:flex;flex-wrap:wrap;gap:6px}
+.COMM_TAG_CHIP{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:6px 11px;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+.COMM_TAG_CHIP:hover{background:#dbeafe}
+.COMM_TAG_CHIP.is-missing{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}
+.dark-theme .COMM_TAG_CHIP{background:#1e3a5f;border-color:#3b82f6;color:#bfdbfe}
+.dark-theme .COMM_TAG_CHIP.is-missing{background:#45121b;border-color:#dc2626;color:#fca5a5}
+.COMM_TAG.readonly{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.dark-theme .COMM_TAG.readonly{background:#172554;color:#93c5fd;border-color:#1e40af}
+.COMM_POLICY_BANNER{display:flex;align-items:flex-start;gap:12px;margin:0 0 14px;padding:13px 16px;border-radius:14px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;font-size:13px;line-height:1.5}
+.COMM_POLICY_BANNER i{margin-top:2px;font-size:16px;color:#2563eb;flex-shrink:0}
+.COMM_POLICY_BANNER strong{display:block;font-size:13px;margin-bottom:2px;color:#1e40af}
+.COMM_POLICY_BANNER p{margin:0;color:#1e3a8a}
+.dark-theme .COMM_POLICY_BANNER{background:#172554;border-color:#1e40af;color:#dbeafe}
+.dark-theme .COMM_POLICY_BANNER i,.dark-theme .COMM_POLICY_BANNER strong,.dark-theme .COMM_POLICY_BANNER p{color:#bfdbfe}
+.COMM_POLICY_PREVIEW{padding:10px 12px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:12px;line-height:1.5;color:#334155}
+.dark-theme .COMM_POLICY_PREVIEW{background:#1e293b;border-color:#334155;color:#cbd5e1}

@@ -6,16 +6,102 @@ const fail=s=>body.replaceChildren(el('p',s,'PASSPORT_ERROR'));
 if(!id||!/^[a-zA-Z0-9._-]{1,36}$/.test(id))return fail('Invalid QR profile link. Ask the pet owner to share a new link.');
 try{
  const cfg=window.CITYVET_CONFIG,client=new Appwrite.Client().setEndpoint(cfg.endpoint).setProject(cfg.projectId),tables=new Appwrite.TablesDB(client),storage=new Appwrite.Storage(client),account=new Appwrite.Account(client),functions=new Appwrite.Functions(client);
- let scanNotified=false;
- async function notifyOwnerIfSignedIn(){
-  if(scanNotified)return;scanNotified=true;
+ const CVO_HOTLINE='(063) 221-6752';
+ const cardEl=document.querySelector('.PASSPORT_CARD');
+ const DRAFT_KEY='cityvet_pending_community_draft_v1';
+ let scanState={checkedAuth:false,signedIn:false,user:null,profile:null,isOwnPet:false,prompted:false,skipped:false,sent:false,sending:false,statusText:'',shareIdentity:true,shareContact:true,customPhone:''};
+
+ async function copyText(text,btn,doneLabel='Copied!'){
+  const val=String(text||'').trim();if(!val)return;
   try{
-   await account.get();
-   const jwtRes=await account.createJWT();
-   if(!jwtRes?.jwt)return;
-   await functions.createExecution({functionId:cfg.functions.operations,body:JSON.stringify({action:'reportMissingPetScan',petProfileId:id}),async:false,headers:{'X-Appwrite-User-JWT':jwtRes.jwt}});
+   if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(val);
+   else{const t=document.createElement('textarea');t.value=val;t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.select();document.execCommand('copy');t.remove();}
+   if(btn){const prev=btn.textContent;btn.textContent=doneLabel;setTimeout(()=>{if(btn.isConnected)btn.textContent=prev;},1800);}
   }catch{}
  }
+
+ async function initScanContext(pet){
+  if(scanState.checkedAuth)return;
+  scanState.checkedAuth=true;
+  try{
+   const me=await account.get();
+   scanState.signedIn=true;scanState.user=me;
+   try{
+    const own=await tables.getRow({databaseId:cfg.databaseId,tableId:cfg.tables.petProfiles,rowId:id});
+    scanState.isOwnPet=String(own?.ownerId||'')===String(me.$id);
+   }catch{}
+   if(!scanState.isOwnPet){
+    try{scanState.profile=await tables.getRow({databaseId:cfg.databaseId,tableId:cfg.tables.userProfiles,rowId:me.$id});}catch{}
+    scanState.customPhone=String(scanState.profile?.phone||'').trim();
+    scanState.shareContact=Boolean(scanState.customPhone);
+   }
+   if(scanState.isOwnPet)scanState.statusText='This is your own missing pet';
+   else scanState.prompted=true;
+  }catch{
+   scanState.signedIn=false;
+  }
+ }
+
+ async function sendScanAlert(){
+  if(scanState.sending||!scanState.signedIn)return;
+  scanState.sending=true;renderPassport(true);
+  try{
+   const jwtRes=await account.createJWT();
+   if(!jwtRes?.jwt)throw new Error('Could not verify your signed-in session.');
+   const cleanPhone=String(scanState.customPhone||'').replace(/[^+0-9]/g,'');
+   const shareId=Boolean(scanState.shareIdentity);
+   const sharePhone=Boolean(shareId&&scanState.shareContact&&cleanPhone.length>=7);
+   const payload={action:'reportMissingPetScan',petProfileId:id,shareIdentity:shareId,shareContact:sharePhone};
+   const displayName=String(scanState.profile?.fullName||scanState.user?.name||'').trim();
+   if(shareId&&displayName)payload.scannerName=displayName;
+   if(sharePhone)payload.scannerContact=cleanPhone;
+   const exec=await functions.createExecution({functionId:cfg.functions.operations,body:JSON.stringify(payload),async:false,headers:{'X-Appwrite-User-JWT':jwtRes.jwt}});
+   let data={};try{data=JSON.parse(exec.responseBody||'{}')?.data||{};}catch{}
+   scanState.prompted=false;scanState.skipped=false;scanState.sent=true;
+   if(data.notified){
+    scanState.statusText=data.anonymous?'Owner alerted anonymously (your identity hidden)':data.scannerContact?`Owner alerted with your name & callback (${data.scannerContact})`:'Owner alerted that you scanned this collar QR';
+   }else if(data.reason==='deduplicated'){
+    scanState.statusText='Owner was already notified within the last 5 mins';
+   }else if(data.reason==='self_scan'){
+    scanState.statusText='This is your own missing pet';
+   }else if(data.reason==='not_missing'){
+    scanState.statusText='Pet is no longer marked missing';
+   }else{
+    scanState.statusText='Scan alert processed';
+   }
+  }catch{
+   scanState.statusText='Could not send scan alert right now — please retry or contact CVO.';
+  }finally{
+   scanState.sending=false;renderPassport(true);
+  }
+ }
+
+ function openSightingInCommunity(pet){
+  const lines=[
+   `MISSING PET SIGHTING REPORT — ${pet.petName||'Companion Pet'}`,
+   `• Spotted At / Landmark: (Describe exact street or barangay landmark here)`,
+   `• Condition / Notes: (Describe behavior, direction headed, or collar)`,
+   '',
+   'Passport Reference:',
+   `• Pet: ${pet.petName||'Companion Pet'} (${pet.species||'Pet'} · ${pet.breed||'Mixed'})`,
+   `• Registered Barangay: Brgy. ${pet.barangay||'Iligan City'}, Iligan City`,
+   pet.officialRegistryId?`• Official ID: ${pet.officialRegistryId}`:null,
+   pet.contact?`• Owner Contact: ${pet.contact}`:null,
+   `• QR Passport: ${window.location.href}`
+  ].filter(v=>v!==null).join('\n').slice(0,5000);
+  try{
+   localStorage.setItem(DRAFT_KEY,JSON.stringify({
+    draftKey:String(Date.now()),
+    createdAt:Date.now(),
+    title:`[SIGHTING] ${pet.petName||'Pet'} (${pet.species||'Pet'}) spotted near ${pet.barangay||'Iligan City'}`.slice(0,140),
+    body:lines,
+    preferredChannelMatch:'missing',
+    sightingPetId:id
+   }));
+  }catch{}
+  window.location.href='./index.html?module=community';
+ }
+
  async function renderPassport(silent=false){
   try{
    const pet=await tables.getRow({databaseId:cfg.databaseId,tableId:cfg.tables.passports,rowId:id});
@@ -23,15 +109,90 @@ try{
    const rawNote=String(pet.lostFoundMessage||'');
    const isMissing=pet.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(rawNote);
    const cleanNote=rawNote.replace(/^\[MISSING\]\s*/i,'').trim();
+   cardEl?.classList.toggle('is-missing',isMissing);
+   if(isMissing&&!scanState.checkedAuth){await initScanContext(pet);}
    const frag=document.createDocumentFragment();
    if(isMissing){
     const alertBox=el('div','','PASSPORT_MISSING_ALERT');alertBox.setAttribute('role','alert');
     const icon=el('i','','fa-solid fa-triangle-exclamation');
     const copy=el('div','');
-    copy.append(el('strong','DECLARED MISSING PET'),el('p',cleanNote||'This pet has been declared missing by its owner. Please contact the owner or the City Veterinary Office immediately.'));
+    const head=el('div','','PASSPORT_MISSING_HEAD');
+    const dot=el('span','','PASSPORT_MISSING_DOT');dot.setAttribute('aria-hidden','true');
+    head.append(dot,el('strong','DECLARED MISSING PET'));
+    copy.append(head,el('p',cleanNote||'This pet has been declared missing by its owner. Please contact the owner or the City Veterinary Office immediately.'));
+    if(scanState.statusText){
+     const pill=el('span',scanState.statusText,'PASSPORT_SCAN_STATUS');
+     copy.append(pill);
+    }
     alertBox.append(icon,copy);
     frag.append(alertBox);
-    notifyOwnerIfSignedIn();
+
+    if(scanState.signedIn&&!scanState.isOwnPet&&scanState.prompted&&!scanState.sent){
+     const box=el('section','','PASSPORT_CONSENT_CARD');
+     const h2=el('h2','');const bell=el('i','','fa-solid fa-bell');h2.append(bell,document.createTextNode(' Notify the Owner About This QR Scan?'));
+     box.append(h2,el('p','Choose what profile information to include with your scan alert:'));
+     const idOpt=document.createElement('label');idOpt.className='PASSPORT_CONSENT_OPT';
+     const idChk=document.createElement('input');idChk.type='checkbox';idChk.checked=scanState.shareIdentity;
+     const dispName=scanState.profile?.fullName||scanState.user?.name||'CityVetHub Member';
+     idOpt.append(idChk,document.createTextNode(`Share my name (${dispName})`));
+     const phWrap=el('label','','PASSPORT_CONSENT_PHONE');
+     const phOpt=document.createElement('label');phOpt.className='PASSPORT_CONSENT_OPT';
+     const phChk=document.createElement('input');phChk.type='checkbox';phChk.checked=scanState.shareContact;phChk.disabled=!scanState.shareIdentity;
+     phOpt.append(phChk,document.createTextNode('Share my callback phone number with the owner'));
+     const phInput=document.createElement('input');phInput.type='tel';phInput.maxLength=24;phInput.placeholder='e.g. 09171234567 (optional)';phInput.value=scanState.customPhone;phInput.disabled=!scanState.shareIdentity||!scanState.shareContact;
+     phWrap.append(document.createTextNode('Callback phone number (optional)'),phInput);
+     const btns=el('div','','PASSPORT_CONSENT_BTNS');
+     const sendBtn=el('button',scanState.sending?'Sending…':(scanState.shareIdentity?'Send Scan Alert':'Alert Anonymously'),'PASSPORT_BTN is-danger');sendBtn.type='button';sendBtn.disabled=scanState.sending;
+     const skipBtn=el('button','Not Now','PASSPORT_BTN');skipBtn.type='button';skipBtn.disabled=scanState.sending;
+     idChk.addEventListener('change',()=>{
+      scanState.shareIdentity=idChk.checked;
+      if(!scanState.shareIdentity)scanState.shareContact=false;
+      phChk.checked=scanState.shareContact;phChk.disabled=!scanState.shareIdentity;
+      phInput.disabled=!scanState.shareIdentity||!scanState.shareContact;
+      sendBtn.textContent=scanState.shareIdentity?'Send Scan Alert':'Alert Anonymously';
+     });
+     phChk.addEventListener('change',()=>{
+      scanState.shareContact=phChk.checked;
+      phInput.disabled=!scanState.shareIdentity||!scanState.shareContact;
+     });
+     phInput.addEventListener('input',()=>{scanState.customPhone=phInput.value;});
+     sendBtn.addEventListener('click',()=>sendScanAlert());
+     skipBtn.addEventListener('click',()=>{scanState.prompted=false;scanState.skipped=true;renderPassport(true);});
+     btns.append(sendBtn,skipBtn);
+     box.append(idOpt,phOpt,phWrap,btns);
+     frag.append(box);
+    }
+
+    const actions=el('div','','PASSPORT_QUICK_ACTIONS');
+    if(scanState.signedIn&&!scanState.isOwnPet&&scanState.skipped&&!scanState.sent){
+     const retryBtn=el('button','Notify Owner I Found This Pet','PASSPORT_BTN is-danger');retryBtn.type='button';
+     retryBtn.addEventListener('click',()=>{scanState.skipped=false;scanState.prompted=true;renderPassport(true);});
+     actions.append(retryBtn);
+    }
+    if(pet.contact){
+     const copyPh=el('button',`Copy Owner Contact (${pet.contact})`,'PASSPORT_BTN is-primary');copyPh.type='button';
+     copyPh.addEventListener('click',()=>copyText(pet.contact,copyPh,'Contact Copied!'));
+     actions.append(copyPh);
+    }
+    if(scanState.signedIn){
+     const postBtn=el('button','Post Sighting in Community','PASSPORT_BTN');postBtn.type='button';
+     postBtn.addEventListener('click',()=>openSightingInCommunity(pet));
+     actions.append(postBtn);
+    }else if(!pet.contact){
+     const loginLink=el('a','Sign in to Alert Owner or Post Sighting','PASSPORT_BTN is-primary');loginLink.href='./login.html';
+     actions.append(loginLink);
+    }
+    if(actions.childNodes.length)frag.append(actions);
+
+    if(!pet.contact){
+     const cvoBox=el('div','','PASSPORT_CVO_BOX');
+     const txtWrap=el('div','');
+     txtWrap.append(el('strong','Owner contact is private — reach Iligan CVO directly: '),document.createTextNode(`${CVO_HOTLINE} · Mon–Fri, 8:00 AM – 5:00 PM · Tambo, Hinaplanon, Iligan City`));
+     const copyCvo=el('button','Copy CVO Hotline','PASSPORT_BTN');copyCvo.type='button';
+     copyCvo.addEventListener('click',()=>copyText('0632216752',copyCvo,'Hotline Copied!'));
+     cvoBox.append(txtWrap,copyCvo);
+     frag.append(cvoBox);
+    }
    }
    const top=el('div','','PASSPORT_TOP');
    if(pet.photoFileId){const img=document.createElement('img');img.alt='Pet photo shared by owner';img.src=String(storage.getFileView({bucketId:cfg.buckets.media,fileId:pet.photoFileId}));img.onerror=()=>img.replaceWith(el('div','Photo not available','PASSPORT_PLACEHOLDER'));top.append(img);}
@@ -44,7 +205,9 @@ try{
    if(pet.displayAddress)values.push(['Owner-shared address',pet.displayAddress]);
    if(pet.contact)values.push(['Owner-shared contact',pet.contact]);
    for(const [label,value] of values){const row=el('div','');row.append(el('span',label),el('strong',value));grid.append(row);}frag.append(grid);
-   const note=el('div','','PASSPORT_NOTE');note.append(el('strong','If found'),el('p',cleanNote||'Please contact CityVetHub or the local veterinary office.'));frag.append(note);
+   if(!isMissing){
+    const note=el('div','','PASSPORT_NOTE');note.append(el('strong','If found'),el('p',cleanNote||'Please contact CityVetHub or the local veterinary office.'));frag.append(note);
+   }
    const medical=el('section','','P46_PUBLIC_MEDICAL');medical.append(el('h2','Owner-shared health documents'));
    const expl=el('p','These photos are supplied by the pet owner and are not automatically verified by a veterinarian.');medical.append(expl);
    try{

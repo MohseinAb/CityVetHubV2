@@ -7,8 +7,32 @@
 .P46_PUBLIC_MEDICAL_ROW{display:grid;gap:8px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-top:14px}
 .P46_PUBLIC_MEDICAL_ROW>img{max-width:100%;max-height:360px;object-fit:contain;border-radius:8px}
 .P46_PUBLIC_MEDICAL_ROW small{font-size:11px;color:#64748b}
-.PASSPORT_MISSING_ALERT{margin:24px 30px 0;padding:16px 20px;border-radius:14px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;display:flex;align-items:flex-start;gap:14px}
+.PASSPORT_CARD.is-missing{border:2px solid #ef4444;box-shadow:0 22px 60px rgba(220,38,38,.14)}
+.PASSPORT_CARD.is-missing .PASSPORT_BANNER{background:linear-gradient(115deg,#b91c1c,#ef4444)}
+.PASSPORT_MISSING_ALERT{margin:24px 30px 0;padding:16px 20px;border-radius:14px;background:#fef2f2;border:1.5px solid #ef4444;color:#991b1b;display:flex;align-items:flex-start;gap:14px}
 .PASSPORT_MISSING_ALERT i{font-size:22px;color:#dc2626;margin-top:2px;flex-shrink:0}
-.PASSPORT_MISSING_ALERT strong{display:block;font-size:14px;letter-spacing:.3px;margin-bottom:4px;color:#7f1d1d}
+.PASSPORT_MISSING_HEAD{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.PASSPORT_MISSING_DOT{width:9px;height:9px;border-radius:50%;background:#dc2626;flex-shrink:0;animation:CV_PASS_PULSE 1.5s ease-in-out infinite}
+@keyframes CV_PASS_PULSE{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.45);opacity:.85}50%{box-shadow:0 0 0 7px rgba(220,38,38,0);opacity:1}}
+.PASSPORT_MISSING_ALERT strong{display:block;font-size:14px;letter-spacing:.3px;color:#7f1d1d}
 .PASSPORT_MISSING_ALERT p{margin:0;font-size:13px;line-height:1.55;color:#991b1b}
-@media(max-width:560px){.PASSPORT_MISSING_ALERT{margin:18px 18px 0;padding:14px 16px}}
+.PASSPORT_SCAN_STATUS{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:6px 10px;border-radius:999px;background:#fee2e2;border:1px solid #fca5a5;color:#7f1d1d;font-size:11px;font-weight:700}
+.PASSPORT_CONSENT_CARD{margin:16px 30px 0;padding:18px 20px;border-radius:14px;background:#fff7ed;border:1.5px solid #fdba74;color:#7c2d12;display:grid;gap:10px}
+.PASSPORT_CONSENT_CARD h2{margin:0;font-size:14px;color:#9a3412;display:flex;align-items:center;gap:8px}
+.PASSPORT_CONSENT_CARD>p{margin:0;font-size:12px;line-height:1.55;color:#7c2d12}
+.PASSPORT_CONSENT_OPT{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;color:#1e293b;cursor:pointer}
+.PASSPORT_CONSENT_OPT input[type=checkbox]{width:16px;height:16px;accent-color:#dc2626;flex-shrink:0}
+.PASSPORT_CONSENT_PHONE{display:grid;gap:5px;font-size:11px;font-weight:700;color:#475569}
+.PASSPORT_CONSENT_PHONE input{padding:9px 11px;border:1px solid #fdba74;border-radius:9px;font:inherit;font-size:12px;background:#fff;color:#0f172a;max-width:280px}
+.PASSPORT_CONSENT_BTNS,.PASSPORT_QUICK_ACTIONS{display:flex;flex-wrap:wrap;gap:9px;margin-top:4px}
+.PASSPORT_QUICK_ACTIONS{margin:14px 30px 0;padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;align-items:center}
+.PASSPORT_BTN{border:1px solid #cbd5e1;background:#fff;color:#1e293b;padding:9px 14px;border-radius:10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;text-decoration:none}
+.PASSPORT_BTN:hover{border-color:#94a3b8;background:#f1f5f9}
+.PASSPORT_BTN:disabled{opacity:.6;cursor:progress}
+.PASSPORT_BTN.is-danger{background:#dc2626;border-color:#dc2626;color:#fff}
+.PASSPORT_BTN.is-danger:hover{background:#b91c1c}
+.PASSPORT_BTN.is-primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.PASSPORT_BTN.is-primary:hover{background:#1d4ed8}
+.PASSPORT_CVO_BOX{margin:14px 30px 0;padding:12px 16px;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;font-size:12px;line-height:1.55;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){.PASSPORT_MISSING_DOT{animation:none}}
+@media(max-width:560px){.PASSPORT_MISSING_ALERT,.PASSPORT_CONSENT_CARD,.PASSPORT_QUICK_ACTIONS,.PASSPORT_CVO_BOX{margin:16px 18px 0}}

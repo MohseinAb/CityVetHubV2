@@ -205,6 +205,11 @@
         document.getElementById('pageTitle').textContent=pageDefs[key].title;
         document.getElementById('searchInput').value='';
     }
+    window.CityVetOpenCommunityDraft=draft=>{
+        if(!allowed.includes('community'))return;
+        communityHub?.openWithDraft?.(draft);
+        openModule('community');
+    };
     document.querySelectorAll('#sideNav,#moduleGrid').forEach(parent=>parent.addEventListener('click',event=>{
         const control=event.target.closest('[data-module]');if (control) openModule(control.dataset.module);
     }));
@@ -418,6 +423,7 @@
         return Number.isFinite(n)?n:0;
     };
     function notifIconSpec(item){
+        if(item.kind==='missing_scan')return {cls:'is-alerts',icon:'fa-qrcode'};
         if(item.kind==='like_post'||item.kind==='like_comment')return {cls:'is-like',icon:'fa-heart'};
         if(item.category==='community')return {cls:'is-community',icon:'fa-comments'};
         if(item.category==='adoptions')return {cls:'is-adoptions',icon:item.kind==='match'?'fa-heart-pulse':'fa-paw'};
@@ -658,13 +664,15 @@
                 pushItem({
                     id:'match_notif_'+m.$id,
                     matchRowId:m.$id,
+                    petProfileId:isMissingScan?(m.listingId||''):'',
+                    petName:m.petName||'',
                     serverRead:Boolean(m.isRead),
-                    category:isMissingScan?'registry':'adoptions',
+                    category:isMissingScan?'medical':'adoptions',
                     kind:isMissingScan?'missing_scan':'match',
                     title:isMissingScan?`Missing Pet QR Scanned: ${m.petName||'Your pet'}`:`Adoption Match: ${m.petName||m.title||'New companion'}`,
                     message:isMissingScan?(m.title||`${m.petName||'Your missing pet'}'s QR passport was scanned.`):(m.message||`${m.title||'A new pet listing'} matches your adoption preferences.`),
                     createdAt:m.createdAt||m.$createdAt,
-                    module:isMissingScan?'registry':'adoptions'
+                    module:isMissingScan?'pets':'adoptions'
                 });
             }
 
@@ -991,6 +999,9 @@
             notifButton.setAttribute('aria-expanded','false');
             if(item.module&&allowed.includes(item.module)){
                 openModule(item.module);
+                if(item.module==='pets'&&item.kind==='missing_scan'&&openRegistry?.focusPet){
+                    setTimeout(()=>openRegistry.focusPet(item.petProfileId||item.petName),120);
+                }
                 if(item.module==='community'&&(item.channelId||item.postId)&&communityHub?.focusTarget){
                     setTimeout(()=>communityHub.focusTarget({channelId:item.channelId,postId:item.postId}),120);
                 }
@@ -1094,12 +1105,16 @@
         return ownerCommOverviewPromise;
     }
 
+    const deepLink = new URLSearchParams(window.location.search).get('module');
+    const hasPendingCommunityDraft = Boolean((()=>{try{return localStorage.getItem('cityvet_pending_community_draft_v1');}catch{return '';}})());
     if (role === 'owner') {
         openModule('home');
+        if (deepLink && allowed.includes(deepLink)) openModule(deepLink);
+        else if (hasPendingCommunityDraft && allowed.includes('community')) openModule('community');
     } else {
         refreshOverview();
-        const deepLink = new URLSearchParams(window.location.search).get('module');
         if (deepLink && allowed.includes(deepLink)) openModule(deepLink);
+        else if (hasPendingCommunityDraft && allowed.includes('community')) openModule('community');
     }
 
     async function loadOwnerCommunityDiscussions() {
