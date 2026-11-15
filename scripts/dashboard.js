@@ -424,6 +424,7 @@
     };
     function notifIconSpec(item){
         if(item.kind==='missing_scan')return {cls:'is-alerts',icon:'fa-qrcode'};
+        if(item.kind==='missing_sighting')return {cls:'is-alerts',icon:'fa-eye'};
         if(item.kind==='like_post'||item.kind==='like_comment')return {cls:'is-like',icon:'fa-heart'};
         if(item.category==='community')return {cls:'is-community',icon:'fa-comments'};
         if(item.category==='adoptions')return {cls:'is-adoptions',icon:item.kind==='match'?'fa-heart-pulse':'fa-paw'};

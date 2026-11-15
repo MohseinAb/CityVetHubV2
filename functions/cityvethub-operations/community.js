@@ -86,6 +86,18 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    if(missingId)return pet.ownerId===user.$id;
    return true;
  };
+ const SIGHTING_PET_RE=/(?:passport\.html\?[^ \n]*?\bpet=|\bpet=)([a-zA-Z0-9._-]{1,36})/i;
+ const isSightingPost=p=>/^\[SIGHTING\]/i.test(String(p?.title||''))||/MISSING PET SIGHTING REPORT/i.test(String(p?.body||''));
+ const extractSightingPetId=p=>{
+   if(!p||!isSightingPost(p))return '';
+   const m=String(p.body||'').match(SIGHTING_PET_RE);
+   return m?m[1]:'';
+ };
+ const resolveMissingPet=async(petId)=>{
+   const pid=String(petId||'').trim();
+   if(!pid||!/^[a-zA-Z0-9._-]{1,36}$/.test(pid))return null;
+   return (await getOrNull('pet_profiles',pid))||(await getOrNull('pets',pid));
+ };
  const requireVerified=async()=>{yes(owner||officer||admin,'Sign in to participate in discussions.');if(owner)yes(await isVerified(),'CVO account verification is required before posting, creating channels, commenting, or voting.');};
  const member=async(ch,u=user.$id)=>getOrNull(TABLES.members,membershipId(ch.$id,u));
  const owned=ch=>ch.createdById===user.$id;
@@ -388,6 +400,23 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      const channelById=new Map(channels.map(c=>[c.$id,c]));
      const postById=new Map(posts.map(p=>[p.$id,p]));
      const commentById=new Map(comments.map(c=>[c.$id,c]));
+     const missingCommentPostIds=[...new Set(comments.filter(c=>!c.isDeleted&&c.postId&&!postById.has(c.postId)).map(c=>c.postId))].slice(0,10);
+     if(missingCommentPostIds.length){
+       const extraPosts=await Promise.all(missingCommentPostIds.map(pid=>getOrNull(TABLES.posts,pid).catch(()=>null)));
+       for(const ep of extraPosts)if(ep&&ep.$id)postById.set(ep.$id,ep);
+     }
+     const sightingPostPetId=new Map();
+     const sigPetIds=new Set();
+     for(const p of postById.values()){
+       if(p.isDeleted)continue;
+       const pid=extractSightingPetId(p);
+       if(pid){sightingPostPetId.set(p.$id,pid);sigPetIds.add(pid);}
+     }
+     const sightingPetById=new Map();
+     if(sigPetIds.size){
+       const fetchedPets=await Promise.all([...sigPetIds].slice(0,30).map(async pid=>[pid,await resolveMissingPet(pid).catch(()=>null)]));
+       for(const [pid,pet] of fetchedPets)if(pet)sightingPetById.set(pid,pet);
+     }
      const items=[];
      // 1. Votes (likes/upvotes) on the user's posts and comments
      for(const v of votes){
@@ -424,7 +453,27 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
          });
        }
      }
-     // 2. Comments on the user's posts and replies to the user's comments
+     // 2. Comments on the user's posts, replies to the user's comments, and sighting threads for the pet owner
+     for(const p of posts){
+       if(p.isDeleted||p.authorId===user.$id)continue;
+       const pid=sightingPostPetId.get(p.$id);
+       const sigPet=pid?sightingPetById.get(pid):null;
+       if(!sigPet||sigPet.ownerId!==user.$id)continue;
+       const ch=channelById.get(p.channelId);
+       const cleanAuthor=String(p.authorName||'A community member').replace(/\s*\[(Admin|Field Officer)\]\s*$/i,'').trim();
+       items.push({
+         id:'comm_sighting_post_'+p.$id,
+         category:'community',
+         kind:'missing_sighting',
+         title:`Possible sighting for ${sigPet.petName||'your missing pet'}`,
+         message:`${cleanAuthor} posted "${p.title}"${ch?` in #${ch.name}`:''}.`,
+         createdAt:p.$createdAt,
+         module:'community',
+         channelId:p.channelId,
+         postId:p.$id,
+         petProfileId:sigPet.$id
+       });
+     }
      for(const c of comments){
        if(c.isDeleted)continue;
        const p=postById.get(c.postId);
@@ -456,6 +505,23 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
            channelId:c.channelId,
            postId:p.$id
          });
+       }else if(p&&!p.isDeleted&&c.authorId!==user.$id){
+         const pid=sightingPostPetId.get(p.$id);
+         const sigPet=pid?sightingPetById.get(pid):null;
+         if(sigPet&&sigPet.ownerId===user.$id){
+           items.push({
+             id:'comm_sighting_comment_'+c.$id,
+             category:'community',
+             kind:'missing_sighting',
+             title:`${cleanAuthor} commented on ${sigPet.petName||'your pet'}'s sighting`,
+             message:`"${String(c.body||'').slice(0,85)}"${ch?` (#${ch.name})`:''}`,
+             createdAt:c.$createdAt,
+             module:'community',
+             channelId:c.channelId,
+             postId:p.$id,
+             petProfileId:sigPet.$id
+           });
+         }
        }
      }
      // 3. Pending join requests on channels owned by the user (or admin)
@@ -686,11 +752,30 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
        const isMissingAuthorized=perms.postPolicy==='missing_pet'&&(admin||officer||(owner&&verifiedUser))&&await isMissingPostAuthorized(data);
        yes(isMissingAuthorized,perms.postRestrictionReason||'You do not have permission to post in this channel.',403);
      }
-     const title=requireValue(data.title,140,'Discussion title'),body=requireValue(data.body,5000,'Discussion');const ids=await validPostFiles(data.imageFileIds||[]);
+     const title=requireValue(data.title,140,'Discussion title'),rawBody=requireValue(data.body,5000,'Discussion');const ids=await validPostFiles(data.imageFileIds||[]);
+     const explicitSightingId=optional(data.sightingPetId,36);
+     const isOwnerMissingPost=Boolean(optional(data.missingPetId,36));
+     let body=rawBody;
+     if(!isOwnerMissingPost&&explicitSightingId&&!SIGHTING_PET_RE.test(body)&&body.length+30+explicitSightingId.length<=5000){
+       body=`${body}\n\n• QR Passport: passport.html?pet=${explicitSightingId}`;
+     }
      const rows=await readList(TABLES.posts,[{attribute:'channelId',value:ch.$id}],100);yes(rows.filter(p=>p.authorId===user.$id&&!p.isDeleted).length<100,'Posting limit reached for this channel.',429);
      const baseName=user.name||'Member';
      const authorName=admin?`${baseName.slice(0,115)} [Admin]`:officer?`${baseName.slice(0,108)} [Field Officer]`:baseName;
-     const p=await create(TABLES.posts,'unique()',{channelId:ch.$id,authorId:user.$id,authorName,title,body,imageFileIds:JSON.stringify(ids),isDeleted:false});return {id:p.$id};
+     const p=await create(TABLES.posts,'unique()',{channelId:ch.$id,authorId:user.$id,authorName,title,body,imageFileIds:JSON.stringify(ids),isDeleted:false});
+     const sightingTargetId=!isOwnerMissingPost?(explicitSightingId||extractSightingPetId({title,body})):'';
+     if(sightingTargetId&&sendPushToUsers){
+       const targetPet=await resolveMissingPet(sightingTargetId).catch(()=>null);
+       const isMiss=targetPet&&(targetPet.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(String(targetPet.lostFoundMessage||''))||Boolean(explicitSightingId));
+       if(targetPet&&isMiss&&targetPet.ownerId&&targetPet.ownerId!==user.$id){
+         await sendPushToUsers([targetPet.ownerId],{
+           title:`Possible Sighting: ${targetPet.petName||'Your Missing Pet'}`,
+           body:`${user.name||'A community member'} posted a sighting in #${ch.name}: "${title.slice(0,100)}"`,
+           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.$id,tab:'feed'}
+         });
+       }
+     }
+     return {id:p.$id};
    }
    case 'communityDeleteChannel':{
      const ch=await get(TABLES.channels,requireValue(data.channelId,36));
@@ -741,6 +826,17 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      }
      if(sendPushToUsers&&parent&&parent.authorId!==user.$id&&parent.authorId!==p.authorId){
        await sendPushToUsers([parent.authorId],{title:`${user.name||'A member'} replied to your comment`,body:`"${body.slice(0,100)}" in "${p.title}"`,data:{type:'comment_reply',channelId:ch.$id,postId:p.$id,tab:'feed'}});
+     }
+     const sigPetId=extractSightingPetId(p);
+     if(sigPetId&&sendPushToUsers){
+       const targetPet=await resolveMissingPet(sigPetId).catch(()=>null);
+       if(targetPet&&targetPet.ownerId&&targetPet.ownerId!==user.$id&&targetPet.ownerId!==p.authorId&&targetPet.ownerId!==parent?.authorId){
+         await sendPushToUsers([targetPet.ownerId],{
+           title:`New sighting reply for ${targetPet.petName||'your missing pet'}`,
+           body:`${user.name||'A community member'} commented on "${p.title}": "${body.slice(0,100)}"`,
+           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.$id,tab:'feed'}
+         });
+       }
      }
      return {id:c.$id};
    }
