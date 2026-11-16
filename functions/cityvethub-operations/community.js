@@ -14,7 +14,10 @@ const choice=(value,allowed)=>{yes(allowed.includes(value),'Invalid option.',400
 const hashId=(prefix,values)=>prefix+createHash('sha256').update(values.join('|')).digest('hex').slice(0,32);
 const id=(value)=>encodeURIComponent(String(value));
 const tpath=(table,rowId)=>`/tablesdb/${id(DB)}/tables/${id(table)}/rows${rowId?'/'+id(rowId):''}`;
-const listPath=(table,filters=[],limit=100)=>tpath(table)+'?limit='+limit+filters.map(({attribute,value})=>'&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'equal',attribute,values:[value]}))).join('');
+const listPath=(table,filters=[],limit=100)=>{
+  const q=[{method:'limit',values:[limit]},...filters.map(({attribute,value})=>({method:'equal',attribute,values:[value]}))];
+  return tpath(table)+'?'+q.map(x=>'queries%5B%5D='+encodeURIComponent(JSON.stringify(x))).join('&');
+};
 const jsonArray=(s)=>{try{const x=JSON.parse(s||'[]');return Array.isArray(x)?x:[];}catch{return[];}};
 const shortRow=r=>({id:r.$id,...r});
 
@@ -32,16 +35,18 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
  const getOrNull=async(table,rowId)=>{try{return await get(table,rowId);}catch(e){if(e.status===404)return null;throw e;}};
  const membershipId=(channelId,userId)=>hashId('m_',[channelId,userId]);
  const voteId=(type,target,userId)=>hashId('v_',[type,target,userId]);
- const POST_CODE_TO_POLICY={all:'everyone',adm:'admin',stf:'staff',vpet:'verified_pet',miss:'missing_pet'};
+ const POST_POLICIES=['everyone','admin','staff','verified_pet','missing_pet'];
+ const COMMENT_POLICIES=['everyone','staff','admin'];
+ const POST_CODE_TO_POLICY={all:'everyone',adm:'admin',stf:'staff',vpet:'verified_pet',miss:'missing_pet',everyone:'everyone',admin:'admin',staff:'staff',verified_pet:'verified_pet',missing_pet:'missing_pet'};
  const POST_POLICY_TO_CODE={everyone:'all',admin:'adm',staff:'stf',verified_pet:'vpet',missing_pet:'miss'};
- const COMMENT_CODE_TO_POLICY={all:'everyone',stf:'staff',adm:'admin'};
+ const COMMENT_CODE_TO_POLICY={all:'everyone',stf:'staff',adm:'admin',everyone:'everyone',staff:'staff',admin:'admin'};
  const COMMENT_POLICY_TO_CODE={everyone:'all',staff:'stf',admin:'adm'};
- const POLICY_TAG_RE=/^\[CVP:p=([a-z]+);c=([a-z]+)\]\s*/i;
+ const POLICY_TAG_RE=/^\[CVP:p=([a-z_]+);c=([a-z_]+)\]\s*/i;
  const isMissingChannelName=name=>/(\bmissing\b.*\bfound\b|\bfound\b.*\bmissing\b|^missing\s*(?:&|and)?\s*pets?$)/i.test(String(name||'').trim());
  const parseChannelMeta=ch=>{
    const raw=String(ch?.description||'');
    const m=raw.match(POLICY_TAG_RE);
-   const cleanDescription=m?raw.replace(POLICY_TAG_RE,''):raw;
+   const cleanDescription=(m?raw.replace(POLICY_TAG_RE,''):raw).trim();
    if(m){
      return {
        postPolicy:POST_CODE_TO_POLICY[m[1].toLowerCase()]||'everyone',
@@ -55,12 +60,13 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    }
    return {postPolicy:'everyone',commentPolicy:'everyone',cleanDescription,hasExplicitTag:false};
  };
- const encodeChannelDescription=(desc,postPolicy='everyone',commentPolicy='everyone')=>{
+ const encodeChannelDescription=(desc,postPolicy='everyone',commentPolicy='everyone',name='',forceTag=false)=>{
    const clean=String(desc??'').replace(POLICY_TAG_RE,'').trim();
+   if(!forceTag&&postPolicy==='everyone'&&commentPolicy==='everyone'&&!isMissingChannelName(name))return clean.slice(0,300);
    const pCode=POST_POLICY_TO_CODE[postPolicy]||'all';
    const cCode=COMMENT_POLICY_TO_CODE[commentPolicy]||'all';
-   const tag=`[CVP:p=${pCode};c=${cCode}] `;
-   return (tag+clean).slice(0,300);
+   const prefix=`[CVP:p=${pCode};c=${cCode}]`;
+   return (clean?`${prefix} ${clean}`:prefix).slice(0,300);
  };
  const isVerified=async()=>{if(admin||officer)return true;if(!owner)return false;const p=await getOrNull('user_profiles',user.$id);return p?.accountVerificationStatus==='verified';};
  let verifiedPetCache=null;
@@ -71,32 +77,54 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      readList('pets',[{attribute:'ownerId',value:user.$id}],25).catch(()=>[]),
      readList('pet_profiles',[{attribute:'ownerId',value:user.$id}],25).catch(()=>[])
    ]);
-   verifiedPetCache=verPets.length>0||invPets.some(p=>p.verificationStatus==='verified');
+   verifiedPetCache=verPets.length>0||invPets.some(p=>String(p.verificationStatus||'').toLowerCase()==='verified');
    return verifiedPetCache;
+ };
+ const resolveMissingPet=async(petId)=>{
+   const pid=optional(petId,36);
+   if(!pid||!/^[a-zA-Z0-9._-]{1,36}$/.test(pid))return null;
+   const prof=await getOrNull('pet_profiles',pid);
+   if(prof)return prof;
+   const official=await getOrNull('pets',pid);
+   if(official){
+     if(official.petProfileId){
+       const linked=await getOrNull('pet_profiles',official.petProfileId);
+       if(linked)return linked;
+     }
+     return official;
+   }
+   const passport=await getOrNull('pet_passports',pid);
+   if(passport){
+     const linkedId=passport.petId&&passport.petId!==pid?passport.petId:'';
+     if(linkedId){
+       const fromOfficial=await getOrNull('pets',linkedId);
+       if(fromOfficial?.petProfileId){
+         const linked=await getOrNull('pet_profiles',fromOfficial.petProfileId);
+         if(linked)return linked;
+       }
+     }
+     return passport;
+   }
+   return null;
  };
  const isMissingPostAuthorized=async(payload)=>{
    const missingId=optional(payload?.missingPetId,36);
    const sightingId=optional(payload?.sightingPetId,36);
    const targetId=missingId||sightingId;
    if(!targetId||!/^[a-zA-Z0-9._-]{1,36}$/.test(targetId))return false;
-   const pet=await getOrNull('pet_profiles',targetId);
+   const pet=await resolveMissingPet(targetId);
    if(!pet)return false;
-   const isMiss=pet.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(String(pet.lostFoundMessage||''));
+   const isMiss=String(pet.vitalStatus||'').toLowerCase()==='missing'||/^\[MISSING\]\s*/i.test(String(pet.lostFoundMessage||''));
    if(!isMiss)return false;
    if(missingId)return pet.ownerId===user.$id;
    return true;
  };
- const SIGHTING_PET_RE=/(?:passport\.html\?[^ \n]*?\bpet=|\bpet=)([a-zA-Z0-9._-]{1,36})/i;
- const isSightingPost=p=>/^\[SIGHTING\]/i.test(String(p?.title||''))||/MISSING PET SIGHTING REPORT/i.test(String(p?.body||''));
+ const SIGHTING_PET_RE=/(?:passport\.html\?[^ \n]*?\bpet=|[?&]pet=|\bpet=)([a-zA-Z0-9._-]{1,36})/i;
+ const isSightingPost=p=>/\[SIGHTING\]/i.test(String(p?.title||''))||/SIGHTING REPORT/i.test(String(p?.body||''));
  const extractSightingPetId=p=>{
    if(!p||!isSightingPost(p))return '';
    const m=String(p.body||'').match(SIGHTING_PET_RE);
    return m?m[1]:'';
- };
- const resolveMissingPet=async(petId)=>{
-   const pid=String(petId||'').trim();
-   if(!pid||!/^[a-zA-Z0-9._-]{1,36}$/.test(pid))return null;
-   return (await getOrNull('pet_profiles',pid))||(await getOrNull('pets',pid));
  };
  const requireVerified=async()=>{yes(owner||officer||admin,'Sign in to participate in discussions.');if(owner)yes(await isVerified(),'CVO account verification is required before posting, creating channels, commenting, or voting.');};
  const member=async(ch,u=user.$id)=>getOrNull(TABLES.members,membershipId(ch.$id,u));
@@ -127,7 +155,10 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
    const isStaff=Boolean(admin||officer);
    const verifiedMember=isStaff||(owner&&Boolean(verifiedUser));
    let canPost=false,postRestrictionReason='';
-   if(canRead&&verifiedMember){
+   if(!canRead){
+     canPost=false;
+     postRestrictionReason=ch.privacy==='private'?'Join this private channel to publish discussions.':'You do not have access to post in this channel.';
+   }else if(verifiedMember){
      if(admin){canPost=true;}
      else if(meta.postPolicy==='admin'){
        canPost=false;
@@ -144,11 +175,14 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      }else{
        canPost=true;
      }
-   }else if(canRead&&!verifiedMember){
+   }else{
      postRestrictionReason='CVO account verification is required before publishing discussions.';
    }
    let canComment=false,commentRestrictionReason='';
-   if(canRead&&verifiedMember){
+   if(!canRead){
+     canComment=false;
+     commentRestrictionReason='Join this channel to comment on discussions.';
+   }else if(verifiedMember){
      if(admin){canComment=true;}
      else if(meta.commentPolicy==='admin'){
        canComment=false;
@@ -159,7 +193,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      }else{
        canComment=true;
      }
-   }else if(canRead&&!verifiedMember){
+   }else{
      commentRestrictionReason='Only verified members with access can comment.';
    }
    return {
@@ -386,6 +420,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      return {avatars,expiresAt:expire,warnings:[...warnings]};
    }
    case 'communityOverview': return {channels:await listings(),verified:await isVerified(),role:admin?'admin':officer?'officer':'owner',notices:await official()};
+   case 'communityChannels': return {channels:await listings()};
    case 'communityOfficialNotices':return {notices:await official()};
    case 'communityNotifications':{
      ensureUser();
@@ -471,7 +506,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
          module:'community',
          channelId:p.channelId,
          postId:p.$id,
-         petProfileId:sigPet.$id
+         petProfileId:sigPet.petProfileId||sigPet.$id
        });
      }
      for(const c of comments){
@@ -519,7 +554,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
              module:'community',
              channelId:c.channelId,
              postId:p.$id,
-             petProfileId:sigPet.$id
+             petProfileId:sigPet.petProfileId||sigPet.$id
            });
          }
        }
@@ -616,14 +651,14 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      const allowedPrivacy=admin?['public','private','staff','invite']:['public','private'];
      const privacy=choice(data.privacy||'public',allowedPrivacy);
      const defaultMissing=isMissingChannelName(name);
-     const postPolicy=choice(data.postPolicy||(defaultMissing?'missing_pet':'everyone'),['everyone','admin','staff','verified_pet','missing_pet']);
-     const commentPolicy=choice(data.commentPolicy||'everyone',['everyone','staff','admin']);
+     const postPolicy=choice(data.postPolicy||(defaultMissing?'missing_pet':'everyone'),POST_POLICIES);
+     const commentPolicy=choice(data.commentPolicy||'everyone',COMMENT_POLICIES);
      if(!admin&&(postPolicy!=='everyone'||commentPolicy!=='everyone')){
        yes(false,'Only CVO Administrators can configure seen-only or conditional channel rules.',403);
      }
      const existing=await readList(TABLES.channels,[],100);if(!admin)yes(existing.filter(x=>x.createdById===user.$id&&!x.isArchived).length<10,'You may own up to 10 channels.',409);
      yes(!existing.some(x=>x.name.toLowerCase()===name.toLowerCase()&&!x.isArchived),'A channel with this name already exists.',409);
-     const storedDescription=encodeChannelDescription(description,postPolicy,commentPolicy);
+     const storedDescription=encodeChannelDescription(description,postPolicy,commentPolicy,name);
      const ch=await create(TABLES.channels,'unique()',{name,description:storedDescription,privacy,createdById:user.$id,createdByName:user.name||'Member',isArchived:false});
      await create(TABLES.members,membershipId(ch.$id,user.$id),{channelId:ch.$id,userId:user.$id,userName:user.name||'Member',status:'approved',requestedAt:new Date().toISOString(),reviewedAt:new Date().toISOString()});
      return {id:ch.$id,name:ch.name,postPolicy,commentPolicy};
@@ -634,14 +669,14 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      const privacy=choice(data.privacy||ch.privacy,allowedPrivacy);
      const currentMeta=parseChannelMeta(ch);
      const hasPolicyUpdate=data.postPolicy!==undefined||data.commentPolicy!==undefined;
-     const nextPost=data.postPolicy!==undefined?choice(data.postPolicy,['everyone','admin','staff','verified_pet','missing_pet']):currentMeta.postPolicy;
-     const nextComment=data.commentPolicy!==undefined?choice(data.commentPolicy,['everyone','staff','admin']):currentMeta.commentPolicy;
+     const nextPost=data.postPolicy!==undefined?choice(data.postPolicy,POST_POLICIES):currentMeta.postPolicy;
+     const nextComment=data.commentPolicy!==undefined?choice(data.commentPolicy,COMMENT_POLICIES):currentMeta.commentPolicy;
      if(!admin&&hasPolicyUpdate&&(nextPost!==currentMeta.postPolicy||nextComment!==currentMeta.commentPolicy)){
        yes(false,'Only CVO Administrators can configure seen-only or conditional channel rules.',403);
      }
      const patch={privacy};
      if(admin&&(hasPolicyUpdate||currentMeta.hasExplicitTag)){
-       patch.description=encodeChannelDescription(currentMeta.cleanDescription,nextPost,nextComment);
+       patch.description=encodeChannelDescription(currentMeta.cleanDescription,nextPost,nextComment,ch.name,true);
      }
      await update(TABLES.channels,ch.$id,patch);
      return {privacy,postPolicy:nextPost,commentPolicy:nextComment};
@@ -766,12 +801,12 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
      const sightingTargetId=!isOwnerMissingPost?(explicitSightingId||extractSightingPetId({title,body})):'';
      if(sightingTargetId&&sendPushToUsers){
        const targetPet=await resolveMissingPet(sightingTargetId).catch(()=>null);
-       const isMiss=targetPet&&(targetPet.vitalStatus==='Missing'||/^\[MISSING\]\s*/i.test(String(targetPet.lostFoundMessage||''))||Boolean(explicitSightingId));
+       const isMiss=targetPet&&(String(targetPet.vitalStatus||'').toLowerCase()==='missing'||/^\[MISSING\]\s*/i.test(String(targetPet.lostFoundMessage||''))||Boolean(explicitSightingId));
        if(targetPet&&isMiss&&targetPet.ownerId&&targetPet.ownerId!==user.$id){
          await sendPushToUsers([targetPet.ownerId],{
            title:`Possible Sighting: ${targetPet.petName||'Your Missing Pet'}`,
            body:`${user.name||'A community member'} posted a sighting in #${ch.name}: "${title.slice(0,100)}"`,
-           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.$id,tab:'feed'}
+           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.petProfileId||targetPet.$id,tab:'feed'}
          });
        }
      }
@@ -834,7 +869,7 @@ export async function runCommunity({action,data,user,admin,officer,owner,api,sen
          await sendPushToUsers([targetPet.ownerId],{
            title:`New sighting reply for ${targetPet.petName||'your missing pet'}`,
            body:`${user.name||'A community member'} commented on "${p.title}": "${body.slice(0,100)}"`,
-           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.$id,tab:'feed'}
+           data:{type:'missing_sighting',channelId:ch.$id,postId:p.$id,petProfileId:targetPet.petProfileId||targetPet.$id,tab:'feed'}
          });
        }
      }

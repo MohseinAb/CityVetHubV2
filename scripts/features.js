@@ -377,7 +377,28 @@
            {key:'notifyOwners',label:'Notify Pet Owners too?',type:'select',options:[{value:'',label:'No — Field Officers only'},{value:'yes',label:'Yes — Pet Owners too'}]}
          ],d=>execute('publishAlert',{...d,notifyOwners:d.notifyOwners==='yes'}));
        }
-       if(c==='deactivateAlert')confirmAction({title:'Deactivate official alert?',description:'This advisory will be marked as inactive.',confirmLabel:'Deactivate alert',danger:true,onConfirm:()=>execute('deactivateAlert',{alertId:b.dataset.id})});
+       if(c==='deactivateAlert'){
+         const alertRow=records.find(x=>x.$id===b.dataset.id);
+         const isOutbreak=Boolean(alertRow&&(alertRow.isOutbreak||String(alertRow.title||'').startsWith('Declared outbreak')));
+         confirmAction({
+           title:isOutbreak?'Resolve & deactivate outbreak?':'Deactivate official alert?',
+           description:isOutbreak?'This outbreak declaration will be marked as resolved (inactive), and all active incident reports for this barangay and category will be moved to Archived Reports.':'This advisory will be marked as inactive.',
+           confirmLabel:isOutbreak?'Resolve & archive reports':'Deactivate alert',
+           danger:true,
+           onConfirm:async()=>{
+             await api.operate('deactivateAlert',{alertId:b.dataset.id});
+             if(isOutbreak&&alertRow){
+               const normB=s=>String(s||'').toLowerCase().replace(/\b(brgy\.?|barangay)\b/g,'').replace(/[^a-z0-9]/g,'').trim();
+               const tBrgy=normB(alertRow.barangay),tDis=String(alertRow.diseaseType||'').trim().toLowerCase();
+               const allReps=await fetchTable('diseaseReports').catch(()=>[]);
+               const toArch=allReps.filter(r=>r.status!=='archived'&&r.status!=='dismissed'&&normB(r.barangay)===tBrgy&&(!tDis||String(r.diseaseType||'').trim().toLowerCase()===tDis));
+               if(toArch.length)await Promise.allSettled(toArch.map(r=>api.operate('archiveIncidentReport',{reportId:r.$id})));
+             }
+             await refresh(true);
+             message(isOutbreak?'Outbreak resolved and related incident reports archived.':successMessageFor('deactivateAlert'),'success');
+           }
+         });
+       }
        if(c==='deleteOutbreak')confirmAction({title:'Permanently delete outbreak?',description:'Permanently delete this outbreak declaration and its linked Pet Owner alert? This removes the active red boundary animation and cannot be undone.',confirmLabel:'Delete outbreak',danger:true,onConfirm:()=>execute('deleteOutbreak',{alertId:b.dataset.id})});
        if(c==='notifyOwners')confirmAction({title:'Notify Pet Owners?',description:'Publish this official alert to Pet Owners as well?',confirmLabel:'Notify Pet Owners',onConfirm:()=>execute('notifyPetOwners',{alertId:b.dataset.id})});
      });

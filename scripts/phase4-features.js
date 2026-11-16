@@ -338,6 +338,32 @@ function mount({api,current,container}){
     fetchReportBacklog(),staff?fetchTable('diseaseIncidents'):Promise.resolve([]),fetchTable('incidentCategories'),fetchTable('diseaseAlerts')
   ]);
   const reports=backlog.records;
+  if(admin){
+    const isOutbreakAlert=a=>a.isOutbreak||String(a.title||'').startsWith('Declared outbreak');
+    const activeOutbreaks=alerts.filter(a=>a.isActive&&isOutbreakAlert(a));
+    const inactiveOutbreaks=alerts.filter(a=>!a.isActive&&isOutbreakAlert(a));
+    const autoArchiveIds=[];
+    for(const a of inactiveOutbreaks){
+      const tBrgy=normalizedName(a.barangay);
+      const tDis=String(a.diseaseType||'').trim().toLowerCase();
+      if(activeOutbreaks.some(act=>normalizedName(act.barangay)===tBrgy&&(!tDis||String(act.diseaseType||'').trim().toLowerCase()===tDis)))continue;
+      const alertTs=Math.max(Date.parse(a.$updatedAt||'')||0,Date.parse(a.issuedAt||a.$createdAt||'')||0);
+      if(!alertTs)continue;
+      for(const r of reports){
+        if(r.status==='archived'||r.status==='dismissed')continue;
+        if(normalizedName(r.barangay)!==tBrgy)continue;
+        if(tDis&&String(r.diseaseType||'').trim().toLowerCase()!==tDis)continue;
+        const repTs=Math.max(Date.parse(r.reportedAt||'')||0,Date.parse(r.$updatedAt||r.$createdAt||'')||0);
+        if(repTs<=alertTs+60000){
+          r.status='archived';
+          autoArchiveIds.push(r.$id);
+        }
+      }
+    }
+    if(autoArchiveIds.length){
+      Promise.allSettled(autoArchiveIds.map(reportId=>api.operate('archiveIncidentReport',{reportId}))).catch(()=>{});
+    }
+  }
   const selectedCategories=categories.filter(c=>c.isActive).map(c=>c.name).sort();
   const reporterOptions=['','owner','officer','admin','unknown'];
   const statusLabel=s=>s==='confirmed'?'Confirmed':s==='dismissed'?'Dismissed':s==='archived'?'Archived':'Unverified';
@@ -376,7 +402,7 @@ function mount({api,current,container}){
     `<div class="P4_SIDE_CARD CV420_REPORT_CARD"><div class="P4_SECTION_HEADING"><h3 id="cv420ReportTitle">Active reports by barangay</h3><span>${backlog.limited?'Displaying first 2,000 accessible reports · ':'Click to expand coordinates · '}Dismissed cases are hidden from the heatmap</span></div>`+
     (admin?`<nav class="CV420_REPORT_TABS" aria-label="Incident report views"><button type="button" class="CV420_TAB" data-report-tab="active" aria-pressed="true"><i class="fa-solid fa-clipboard-list"></i> Active Reports <b>${roles.length}</b></button><button type="button" class="CV420_TAB" data-report-tab="archived" aria-pressed="false"><i class="fa-solid fa-box-archive"></i> Archived Reports <b>${archivedRoles.length}</b></button></nav>`:'')+
     `<div class="P4_SIDE_FILTERS P4_SIDE_FILTERS_4"><label>Category <select id="p4DiseaseType"><option value="">All categories</option>${[...new Set([...allNonArchived,...archivedRoles].map(r=>r.diseaseType).filter(Boolean))].map(t=>`<option>${E(t)}</option>`).join('')}</select></label><label>Barangay <select id="p4Status"><option value="">All barangays</option>${[...new Map([...allActiveGroups,...archivedGroups].map(g=>[g.key,g])).values()].sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${E(g.key)}">${E(g.name)}</option>`).join('')}</select></label><label>Reporter <select id="p4ReporterType">${reporterOptions.map(r=>`<option value="${E(r)}">${E(r?roleLabel(r):'All reporters')}</option>`).join('')}</select></label><label>Status <select id="p4VerifyStatus"><option value="">All active</option><option value="pending">Unverified</option><option value="confirmed">Confirmed</option><option value="dismissed">Dismissed</option></select></label></div><div id="p4ReportRows" class="P4_REPORT_FEED"></div></div>`+
-    (admin?`<div class="P4_SIDE_CARD CV420_OUTBREAKS"><div class="P4_SECTION_HEADING"><h3><i class="fa-solid fa-triangle-exclamation"></i> Declared Outbreaks</h3><span>${outbreaks.length} total</span></div><div class="CV420_OUTBREAK_LIST">${outbreaks.length?outbreaks.map(a=>`<div class="CV420_OUTBREAK_ROW"><span class="CV420_OUTBREAK_DOT ${a.isActive?'CV420_DOT_ACTIVE':''}"></span><div class="CV420_OUTBREAK_META"><strong>${E(a.barangay)} — ${E(a.diseaseType)}</strong><small>${a.isActive?'Active declaration':'Inactive declaration'} · ${E(D(a.issuedAt))}</small></div><button type="button" class="CV420_ACTION CV420_DANGER" data-delete-outbreak="${E(a.$id)}" title="Delete this outbreak declaration and linked owner alert"><i class="fa-solid fa-trash-can"></i> Delete</button></div>`).join(''):'<p class="P4_FEED_EMPTY">No outbreaks declared.</p>'}</div></div>`:'')+
+    (admin?`<div class="P4_SIDE_CARD CV420_OUTBREAKS"><div class="P4_SECTION_HEADING"><h3><i class="fa-solid fa-triangle-exclamation"></i> Declared Outbreaks</h3><span>${outbreaks.length} total</span></div><div class="CV420_OUTBREAK_LIST">${outbreaks.length?outbreaks.map(a=>`<div class="CV420_OUTBREAK_ROW"><span class="CV420_OUTBREAK_DOT ${a.isActive?'CV420_DOT_ACTIVE':''}"></span><div class="CV420_OUTBREAK_META"><strong>${E(a.barangay)} — ${E(a.diseaseType)}</strong><small>${a.isActive?'Active declaration':'Inactive declaration'} · ${E(D(a.issuedAt))}</small></div>${a.isActive?`<button type="button" class="CV420_ACTION" data-resolve-outbreak="${E(a.$id)}" title="Resolve outbreak and archive related incident reports"><i class="fa-solid fa-check"></i> Resolve</button>`:''}<button type="button" class="CV420_ACTION CV420_DANGER" data-delete-outbreak="${E(a.$id)}" title="Delete this outbreak declaration and linked owner alert"><i class="fa-solid fa-trash-can"></i> Delete</button></div>`).join(''):'<p class="P4_FEED_EMPTY">No outbreaks declared.</p>'}</div></div>`:'')+
     `<div class="P4_SIDE_CARD P4_BRIEF"><h3>Barangay report volume</h3><div class="P46_LEGEND"><span class="P46_LEVEL P46_GREEN"></span> 1–2: Green <span class="P46_LEVEL P46_YELLOW"></span> 3–10: Yellow <span class="P46_LEVEL P46_RED"></span> 11+: Red</div><p>Colors reflect active (unverified and confirmed) reports; dismissed false alarms are excluded. Only the CVO may declare an outbreak after assessment.</p></div></section>`+
     `<section class="P4_MAP_CARD CV49_MAP_CARD"><div class="P4_MAP_HEAD"><div><h3>Iligan City · Barangay incidents</h3><p>Click a boundary to inspect reports. Click elsewhere to report a location.</p></div><span class="P4_LIVE_TAG"><span></span> ${roles.length} active · ${confirmedTotal} confirmed</span></div>`+
     `<div class="P4_MAP_OPTIONS"><label><input type="checkbox" ${survState.showMarkers!==false?'checked':''} id="p46ShowMarkers"> Incident markers</label><label><input type="checkbox" ${survState.showBorders!==false?'checked':''} id="p46ShowBorders"> Barangay outlines</label><label class="P46_GEO_IMPORT">Import verified GeoJSON <input id="p46ImportGeo" type="file" accept=".geojson,.json,application/geo+json,application/json" hidden></label></div>`+
@@ -467,7 +493,23 @@ function mount({api,current,container}){
   renderGroups();
   if(survState.feedScroll)feed.scrollTop=survState.feedScroll;
   container.querySelector('.CV420_OUTBREAK_LIST')?.addEventListener('click',async event=>{
-    const b=event.target.closest('[data-delete-outbreak]');if(!b||!admin)return;
+    if(!admin)return;
+    const resolveBtn=event.target.closest('[data-resolve-outbreak]');
+    if(resolveBtn){
+      const a=outbreaks.find(x=>x.$id===resolveBtn.dataset.resolveOutbreak);if(!a)return;
+      if(!confirm(`Resolve and deactivate the outbreak declaration for ${a.barangay} (${a.diseaseType})? All active incident reports for this barangay and category will be moved to Archived Reports.`))return;
+      resolveBtn.disabled=true;
+      try{
+        await api.operate('deactivateAlert',{alertId:a.$id});
+        const tBrgy=normalizedName(a.barangay),tDis=String(a.diseaseType||'').trim().toLowerCase();
+        const toArch=roles.filter(r=>normalizedName(r.barangay)===tBrgy&&(!tDis||String(r.diseaseType||'').trim().toLowerCase()===tDis));
+        if(toArch.length)await Promise.allSettled(toArch.map(r=>api.operate('archiveIncidentReport',{reportId:r.$id})));
+        await refresh(true);
+        notice('Outbreak resolved and related incident reports archived.');
+      }catch(err){notice(api.readableError(err),true);resolveBtn.disabled=false;}
+      return;
+    }
+    const b=event.target.closest('[data-delete-outbreak]');if(!b)return;
     const a=outbreaks.find(x=>x.$id===b.dataset.deleteOutbreak);if(!a)return;
     if(!confirm(`Permanently delete the outbreak declaration for ${a.barangay} (${a.diseaseType})? This also removes the corresponding Pet Owner alert and the red map animation. This cannot be undone.`))return;
     b.disabled=true;try{await api.operate('deleteOutbreak',{alertId:a.$id});await refresh(true);notice('Outbreak declaration deleted.');}catch(err){notice(api.readableError(err),true);b.disabled=false;}

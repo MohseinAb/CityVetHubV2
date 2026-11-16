@@ -219,6 +219,7 @@ export default async ({req,res,log,error})=>{
       }
       return rows;
     }
+    const queryRows=(table,field,value,limit=100)=>api('GET',path(table)+'?queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'limit',values:[limit]}))+'&queries%5B%5D='+encodeURIComponent(JSON.stringify({method:'equal',attribute:field,values:[value]})));
     const userCache=new Map();
     async function getUserDoc(uid){
       if(!uid)return null;
@@ -710,6 +711,12 @@ export default async ({req,res,log,error})=>{
           pet=await row(T.inventory,targetId);
           isInventoryOnly=true;
         }
+        const linkedInv=!isInventoryOnly&&pet.petProfileId
+          ?await row(T.inventory,pet.petProfileId).catch(e=>e.status===404?null:Promise.reject(e))
+          :null;
+        const vitalCandidates=[linkedInv?.vitalStatus,pet.vitalStatus].map(v=>String(v||'').trim().toLowerCase());
+        verify(409,!vitalCandidates.includes('deceased'),'Cannot record a vaccination or treatment for a deceased pet.');
+        verify(409,!vitalCandidates.includes('missing'),'This pet is currently declared Missing. Notify the owner and wait until it is marked Found before administering vaccines or treatments.');
         const recordType=accept(data.recordType,['Vaccination','Treatment']);
         const when=new Date(data.dateAdministered);verify(400,!Number.isNaN(when.getTime())&&when.getTime()<=Date.now()+86400000,'Invalid treatment date');
         const expRaw=String(data.expiryDate||'').trim();
@@ -752,8 +759,8 @@ export default async ({req,res,log,error})=>{
       }
       case 'createIncidentCategory':{
         verify(403,admin);const name=requireText(data.name,60),description=optText(data.description,240);
-        const existing=await api('GET',path(T.categories)+'?limit=100');
-        verify(409,!(existing.rows||[]).some(r=>r.name.toLowerCase()===name.toLowerCase()),'Category already exists');
+        const existing=await allTableRows(T.categories);
+        verify(409,!existing.some(r=>r.name.toLowerCase()===name.toLowerCase()),'Category already exists');
         result=await create(T.categories,'unique()',{name,description,isActive:true,createdById:user.$id},[roleAdmin,'read("users")']);break;
       }
       case 'toggleIncidentCategory':{
@@ -766,13 +773,25 @@ export default async ({req,res,log,error})=>{
           const verifiedProfile=await row(T.profiles,user.$id).catch(e=>e.status===404?null:Promise.reject(e));
           verify(403,verifiedProfile?.accountVerificationStatus==='verified','Only CVO-verified Pet Owner accounts can submit incident reports. Go to My Profile to request verification.');
         }
-        const diseaseType=requireText(data.diseaseType,60);const allCats=await api('GET',path(T.categories)+'?limit=100');verify(400,(allCats.rows||[]).some(c=>c.name===diseaseType&&c.isActive),'Choose an active incident category created by CVO');
+        const diseaseType=requireText(data.diseaseType,60);const allCats=await allTableRows(T.categories);verify(400,allCats.some(c=>c.name===diseaseType&&c.isActive),'Choose an active incident category created by CVO');
         const latitude=Number(data.latitude),longitude=Number(data.longitude);
         verify(400,Number.isFinite(latitude)&&Number.isFinite(longitude)&&latitude>=4&&latitude<=22&&longitude>=116&&longitude<=127,'Provide valid Philippine coordinates');
         const photoFileId=optText(data.photoFileId,36);if(photoFileId){stage='incident:authorize-photo';await assertUploadedPhoto(photoFileId,user,true,true);}
-        result=await create(T.reports,'unique()',{photoFileId,reportedById:user.$id,reporterRole:admin?'admin':officer?'officer':'owner',diseaseType,barangay:cityBarangay(data.barangay),latitude,longitude,description:optText(data.description,1000),status:'pending',reportedAt:new Date().toISOString()},[roleUser(user.$id),roleAdmin,roleOfficer]);
-        const officerIds=await getOfficerUserIds();
-        await sendPushToUsers(officerIds,{title:`New Field Incident: ${diseaseType}`,body:`Reported in Brgy. ${result.barangay}. Tap to inspect in Surveillance.`,data:{type:'incident_report',reportId:result.$id}});
+        // Staff (`officer` / `admin`) auto-confirm field reports by default unless flagged as pending follow-up; citizens stay strictly `'pending'`.
+        const isStaff=!owner&&(admin||officer);
+        const shouldAutoConfirm=isStaff&&data.keepPending!==true&&data.confirmImmediately!==false;
+        const nowIso=new Date().toISOString();
+        const reportStatus=shouldAutoConfirm?'confirmed':'pending';
+        result=await create(T.reports,'unique()',{photoFileId,reportedById:user.$id,reporterRole:admin?'admin':officer?'officer':'owner',diseaseType,barangay:cityBarangay(data.barangay),latitude,longitude,description:optText(data.description,1000),status:reportStatus,reportedAt:nowIso},[roleUser(user.$id),roleAdmin,roleOfficer]);
+        if(shouldAutoConfirm){
+          const incident=await create(T.incidents,'unique()',{reportId:result.$id,diseaseType:result.diseaseType,barangay:result.barangay||'',latitude,longitude,confirmedById:user.$id,confirmedAt:nowIso},[roleAdmin,roleOfficer]);
+          result={...result,incident};
+        }else{
+          const officerIds=(await getOfficerUserIds()).filter(id=>id&&id!==user.$id);
+          if(officerIds.length>0){
+            await sendPushToUsers(officerIds,{title:`New Field Incident: ${diseaseType}`,body:`Reported in Brgy. ${result.barangay}. Tap to inspect in Surveillance.`,data:{type:'incident_report',reportId:result.$id}});
+          }
+        }
         break;
       }
       case 'getIncidentReportDetails':{
@@ -786,8 +805,8 @@ export default async ({req,res,log,error})=>{
         let confirmedAt=null,confirmedByName='';
         if(report.status==='confirmed'){
           try{
-            const incRes=await api('GET',path(T.incidents)+'?limit=100');
-            const inc=(incRes.rows||[]).find(x=>x.reportId===report.$id);
+            const incRes=await queryRows(T.incidents,'reportId',report.$id);
+            const inc=(incRes.rows||[])[0];
             if(inc){
               confirmedAt=inc.confirmedAt||null;
               if(inc.confirmedById){
@@ -814,8 +833,8 @@ export default async ({req,res,log,error})=>{
         verify(409,report.status!=='archived','Restore archived reports before confirming.');
         verify(409,report.status!=='confirmed','This incident report is already confirmed.');
         const confirmedAt=new Date().toISOString();
-        const incRes=await api('GET',path(T.incidents)+'?limit=100');
-        let incident=(incRes.rows||[]).find(x=>x.reportId===report.$id);
+        const incRes=await queryRows(T.incidents,'reportId',report.$id);
+        let incident=(incRes.rows||[])[0];
         if(!incident){
           incident=await create(T.incidents,'unique()',{reportId:report.$id,diseaseType:report.diseaseType,barangay:report.barangay||'',latitude:Number(report.latitude),longitude:Number(report.longitude),confirmedById:user.$id,confirmedAt},[roleAdmin,roleOfficer]);
         }
@@ -829,8 +848,8 @@ export default async ({req,res,log,error})=>{
         verify(409,report.status!=='archived','Archived reports cannot be dismissed.');
         verify(409,report.status!=='dismissed','This incident report is already dismissed.');
         if(report.status==='confirmed'){
-          const incRes=await api('GET',path(T.incidents)+'?limit=100');
-          const matches=(incRes.rows||[]).filter(x=>x.reportId===report.$id);
+          const incRes=await queryRows(T.incidents,'reportId',report.$id);
+          const matches=incRes.rows||[];
           for(const inc of matches){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
         }
         result=await update(T.reports,report.$id,{status:'dismissed'});
@@ -841,8 +860,8 @@ export default async ({req,res,log,error})=>{
         const report=await row(T.reports,requireText(data.reportId,36));
         verify(409,report.status==='dismissed'||report.status==='confirmed','Only confirmed or dismissed reports can be reopened.');
         if(report.status==='confirmed'){
-          const incRes=await api('GET',path(T.incidents)+'?limit=100');
-          const matches=(incRes.rows||[]).filter(x=>x.reportId===report.$id);
+          const incRes=await queryRows(T.incidents,'reportId',report.$id);
+          const matches=incRes.rows||[];
           for(const inc of matches){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
         }
         result=await update(T.reports,report.$id,{status:'pending'});
@@ -866,8 +885,8 @@ export default async ({req,res,log,error})=>{
         verify(403,admin,'Only CVO Administrators can permanently delete reports.');
         const report=await row(T.reports,requireText(data.reportId,36));
         try{
-          const incRes=await api('GET',path(T.incidents)+'?limit=100');
-          for(const inc of (incRes.rows||[]).filter(x=>x.reportId===report.$id)){await remove(T.incidents,inc.$id);}
+          const incRes=await queryRows(T.incidents,'reportId',report.$id);
+          for(const inc of (incRes.rows||[])){await remove(T.incidents,inc.$id);}
         }catch(err){if(err.status!==404)log?.('Cleanup incident error: '+err.message);}
         await remove(T.reports,report.$id);
         result={deleted:true,reportId:report.$id};
@@ -890,14 +909,14 @@ export default async ({req,res,log,error})=>{
         const report=await row(T.reports,requireText(data.reportId,36));
         verify(409,report.status!=='archived','Restore archived reports before reviewing.');
         if(decision==='confirm'){
-          const incRes=await api('GET',path(T.incidents)+'?limit=100');
-          if(!(incRes.rows||[]).some(x=>x.reportId===report.$id)){
+          const incRes=await queryRows(T.incidents,'reportId',report.$id);
+          if(!(incRes.rows||[]).length){
             await create(T.incidents,'unique()',{reportId:report.$id,diseaseType:report.diseaseType,barangay:report.barangay||'',latitude:Number(report.latitude),longitude:Number(report.longitude),confirmedById:user.$id,confirmedAt:new Date().toISOString()},[roleAdmin,roleOfficer]);
           }
           result=await update(T.reports,report.$id,{status:'confirmed'});
         }else{
-          const incRes=await api('GET',path(T.incidents)+'?limit=100');
-          for(const inc of (incRes.rows||[]).filter(x=>x.reportId===report.$id)){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
+          const incRes=await queryRows(T.incidents,'reportId',report.$id);
+          for(const inc of (incRes.rows||[])){try{await remove(T.incidents,inc.$id);}catch(err){if(err.status!==404)throw err;}}
           result=await update(T.reports,report.$id,{status:'dismissed'});
         }
         break;
@@ -905,11 +924,12 @@ export default async ({req,res,log,error})=>{
       case 'declareOutbreak':{
         verify(403,admin,'Only administrators can declare outbreaks');
         const barangay=cityBarangay(data.barangay),diseaseType=requireText(data.diseaseType,60),message=requireText(data.message,1500);
-        const all=await api('GET',path(T.reports)+'?limit=100');
-        verify(409,(all.rows||[]).some(r=>r.status!=='archived'&&r.status!=='dismissed'&&r.barangay?.toLowerCase().trim()===barangay.toLowerCase().trim()&&r.diseaseType===diseaseType),
+        const normB=s=>String(s||'').toLowerCase().replace(/\b(brgy\.?|barangay)\b/g,'').replace(/[^a-z0-9]/g,'').trim();
+        const targetBrgy=normB(barangay),targetDisease=diseaseType.trim().toLowerCase();
+        const [allReports,allAlerts]=await Promise.all([allTableRows(T.reports),allTableRows(T.alerts)]);
+        verify(409,allReports.some(r=>r.status!=='archived'&&r.status!=='dismissed'&&normB(r.barangay)===targetBrgy&&String(r.diseaseType||'').trim().toLowerCase()===targetDisease),
           'At least one active (unverified or confirmed) incident in this barangay/category is required.');
-        const alerts=await api('GET',path(T.alerts)+'?limit=100');
-        verify(409,!(alerts.rows||[]).some(a=>a.isActive && a.barangay?.toLowerCase().trim()===barangay.toLowerCase().trim()&&a.diseaseType===diseaseType&&(a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'))),
+        verify(409,!allAlerts.some(a=>a.isActive && normB(a.barangay)===targetBrgy && String(a.diseaseType||'').trim().toLowerCase()===targetDisease && (a.isOutbreak||String(a.title||'').startsWith('Declared outbreak'))),
           'An active outbreak declaration already exists for this barangay and category.');
         // An administrator's documented decision; report volume alone does NOT diagnose outbreaks.
         const notifyOwners=!!data.notifyOwners;
@@ -953,6 +973,16 @@ export default async ({req,res,log,error})=>{
         verify(403,admin);const alertId=requireText(data.alertId,36);
         result=await update(T.alerts,alertId,{isActive:false});
         try{await update(T.ownerAlerts,alertId,{isActive:false});}catch(e){if(e.status!==404)throw e;}
+        if(result?.isOutbreak||String(result?.title||'').startsWith('Declared outbreak')){
+          const normB=s=>String(s||'').toLowerCase().replace(/\b(brgy\.?|barangay)\b/g,'').replace(/[^a-z0-9]/g,'').trim();
+          const targetBrgy=normB(result.barangay);
+          const targetDisease=String(result.diseaseType||'').trim().toLowerCase();
+          const repRows=await allTableRows(T.reports).catch(()=>[]);
+          const matching=repRows.filter(r=>r.status!=='archived'&&r.status!=='dismissed'&&normB(r.barangay)===targetBrgy&&(!targetDisease||String(r.diseaseType||'').trim().toLowerCase()===targetDisease));
+          for(const r of matching){
+            await update(T.reports,r.$id,{status:'archived'}).catch(()=>{});
+          }
+        }
         break;
       }
       case 'createListing':{
@@ -966,8 +996,8 @@ export default async ({req,res,log,error})=>{
         verify(403,owner,'Only Pet Owners may list their own pets.');
         const pet=await row(T.inventory,requireText(data.petProfileId,36));
         verify(403,pet.ownerId===user.$id,'You can only list your own pets.');
-        const all=await api('GET',path(T.listings)+'?limit=100');
-        verify(409,!(all.rows||[]).some(l=>l.petProfileId===pet.$id&&l.status!=='adopted'),'This pet is already listed for adoption. Manage or reopen its existing listing on the Adoptions page.');
+        const all=await allTableRows(T.listings);
+        verify(409,!all.some(l=>l.petProfileId===pet.$id&&l.status!=='adopted'),'This pet is already listed for adoption. Manage or reopen its existing listing on the Adoptions page.');
         // Verified pets keep the official pet ID. Unverified pets use their inventory ID.
         const official=(pet.verificationStatus==='verified'&&pet.latestRequestId)?await row(T.pets,pet.latestRequestId).catch(e=>{if(e.status===404)return null;throw e;}):null;
         const publishPetPhoto=!!data.publishPetPhoto;
@@ -1188,10 +1218,9 @@ export default async ({req,res,log,error})=>{
       }
       case 'listOwnListingApplications':{
         verify(403,owner,'Only Pet Owners can access their listing applications.');
-        const all=await api('GET',path(T.listings)+'?limit=100');
-        const mine=new Set((all.rows||[]).filter(l=>l.postedById===user.$id).map(l=>l.$id));
-        const apps=await api('GET',path(T.applications)+'?limit=100');
-        result={applications:(apps.rows||[]).filter(a=>mine.has(a.listingId)).map(a=>({$id:a.$id,listingId:a.listingId,petId:a.petId,petNameSnapshot:a.petNameSnapshot||'',listingTitleSnapshot:a.listingTitleSnapshot||'',applicantId:a.applicantId,applicantName:a.applicantName,message:a.message,contactNumber:a.contactNumber,status:a.status,submittedAt:a.submittedAt,$createdAt:a.$createdAt,$updatedAt:a.$updatedAt}))};break;
+        const [all,apps]=await Promise.all([allTableRows(T.listings),allTableRows(T.applications)]);
+        const mine=new Set(all.filter(l=>l.postedById===user.$id).map(l=>l.$id));
+        result={applications:apps.filter(a=>mine.has(a.listingId)).map(a=>({$id:a.$id,listingId:a.listingId,petId:a.petId,petNameSnapshot:a.petNameSnapshot||'',listingTitleSnapshot:a.listingTitleSnapshot||'',applicantId:a.applicantId,applicantName:a.applicantName,message:a.message,contactNumber:a.contactNumber,status:a.status,submittedAt:a.submittedAt,$createdAt:a.$createdAt,$updatedAt:a.$updatedAt}))};break;
       }
       case 'reviewOwnAdoption':{
         verify(403,owner,'Only the current Pet Owner can decide an adoption request.');
@@ -1204,8 +1233,8 @@ export default async ({req,res,log,error})=>{
         verify(403,pet.ownerId===user.$id,'This pet is no longer yours.');
         const decision=accept(data.decision,['approve','decline']);
         if(decision==='approve'){
-          const existing=await api('GET',path(T.applications)+'?limit=100');
-          verify(409,!(existing.rows||[]).some(a=>a.$id!==application.$id&&a.listingId===listing.$id&&['owner_approved','approved','completed'].includes(a.status)),
+          const existing=await queryRows(T.applications,'listingId',listing.$id);
+          verify(409,!(existing.rows||[]).some(a=>a.$id!==application.$id&&['owner_approved','approved','completed'].includes(a.status)),
             'You already approved another applicant for this pet.');
           // The adopter requested the pet; the current owner chooses the adopter.
           // CVO consent is NOT required. Reserve the listing immediately.
