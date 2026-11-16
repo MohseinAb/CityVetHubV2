@@ -78,6 +78,7 @@ function mount({api,current,container}){
   const scrollTop=scroller.scrollTop;
   cleanup();
   container.innerHTML=`<div class="CV_WORKSPACE"><div id="phase4Notice" hidden></div>${body}</div>`;
+  window.CityVetUI?.upgrade(container);
   scroller.scrollTop=scrollTop;
  }
  function btn(name,label,icon='fa-plus',extra=''){return `<button class="CV_BUTTON ${extra||'PRIMARY_ACTION'}" type="button" data-f4="${name}"><i class="fa-solid ${icon}"></i> ${E(label)}</button>`;}
@@ -430,6 +431,7 @@ function mount({api,current,container}){
       return `<section class="P46_BRNG_GROUP"><button type="button" class="P46_BRNG_HEAD" data-barangay="${E(g.key)}"><span class="P46_LEVEL P46_${hasOutbreak(g.name)&&reportTab==='active'&&verifyFilter.value!=='dismissed'?'RED':severity(g.reports.length).toUpperCase()}"></span><strong>${E(g.name)}</strong>${hasOutbreak(g.name)&&reportTab==='active'&&verifyFilter.value!=='dismissed'?'<span class="CV420_OUTBREAK_LABEL">OUTBREAK</span>':''}<span>${countLabel}</span><i class="fa-solid fa-chevron-down"></i></button><div class="P46_BRNG_DETAILS" ${selected===g.key?'':'hidden'}>${g.reports.map(r=>`<article class="P46_INCIDENT_ROW CV422_REPORT_ENTRY" tabindex="0" role="button" aria-label="Open incident details: ${E(r.diseaseType)} in ${E(r.barangay)}" data-view-report="${E(r.$id)}"><div class="CV422_REPORT_SUMMARY"><span class="CV422_REPORT_ICON"><i class="fa-solid fa-file-medical"></i></span><div class="CV422_REPORT_SUMMARY_TEXT"><b>${E(r.diseaseType)}</b><small>${E(D(r.reportedAt))} · ${E(roleLabel(r.reporterRole))} · <span class="CV423_CASE_PILL CV423_CASE_${E(r.status)}">${E(statusLabel(r.status))}</span></small></div><span class="CV422_VIEW_MORE"><i class="fa-solid fa-expand"></i> View details</span></div></article>`).join('')}${admin&&reportTab==='active'&&verifyFilter.value!=='dismissed'&&!hasOutbreak(g.name)?`<button class="CV_BUTTON P46_DECLARE" type="button" data-declare="${E(g.key)}">Declare outbreak</button>`:''}</div></section>`;
     }).join('');
     feed.innerHTML=groupRows||(reportTab==='archived'?'<p class="P4_FEED_EMPTY">No archived reports match these filters.</p>':verifyFilter.value==='dismissed'?'<p class="P4_FEED_EMPTY">No dismissed reports match these filters.</p>':'<p class="P4_FEED_EMPTY">No active reports match these filters.</p>');
+    window.CityVetUI?.enhancePagination(feed.parentElement||container);
     const title=container.querySelector('#cv420ReportTitle');if(title)title.textContent=reportTab==='archived'?'Archived Reports by Barangay':verifyFilter.value==='dismissed'?'Dismissed Reports (Hidden from Heatmap)':'Active reports by barangay';
     container.querySelectorAll('[data-report-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.reportTab===reportTab)));
   }

@@ -277,7 +277,7 @@
     alertRegion.setAttribute('role','status');alertRegion.setAttribute('aria-live','polite');
     alertRegion.innerHTML='<span class="CV49_ALERT_BELL"><i class="fa-solid fa-bell"></i></span><div><strong id="cv49LiveTitle">CVO alert</strong><p id="cv49LiveMessage"></p></div><button type="button" id="cv49OpenAlerts">View updates</button><button type="button" class="CV49_ALERT_DISMISS" id="cv49DismissAlerts" aria-label="Dismiss alert">×</button>';
     document.querySelector('.DASHBOARD_CONTENT .BREADCRUMBS')?.after(alertRegion);
-    alertRegion.querySelector('#cv49OpenAlerts').addEventListener('click',()=>openModule(role==='owner'?'community':'alerts'));
+    alertRegion.querySelector('#cv49OpenAlerts').addEventListener('click',()=>{openModule(role==='owner'?'community':'alerts');if(role==='owner')setTimeout(()=>communityHub?.focusTarget?.({section:'notices'}),120);});
     alertRegion.querySelector('#cv49DismissAlerts').addEventListener('click',()=>alertRegion.hidden=true);
     const seenAlerts=new Set();let loadedAlerts=false;
     function showLiveAlert(row,initial=false){
@@ -519,7 +519,7 @@
                     const ov=await api.operate('communityOverview');
                     for(const n of (ov?.notices||[])){
                         const parsed=parseAnnouncementBrgy(n);
-                        if(!matchUserBarangay(parsed.barangay))continue;
+                        if(n.category==='announcement'&&!matchUserBarangay(parsed.barangay))continue;
                         pushItem({
                             id:'comm_notice_'+n.id,
                             category:'alerts',
@@ -880,6 +880,7 @@
 
             // 8. CVO Outbreak & Public Health Alerts
             for(const a of alertRows.filter(x=>x.isActive)){
+                if(collected.some(n=>n.id==='comm_notice_'+a.$id))continue;
                 pushItem({
                     id:'cvo_alert_'+a.$id,
                     category:'alerts',
@@ -1003,8 +1004,12 @@
                 if(item.module==='pets'&&item.kind==='missing_scan'&&openRegistry?.focusPet){
                     setTimeout(()=>openRegistry.focusPet(item.petProfileId||item.petName),120);
                 }
-                if(item.module==='community'&&(item.channelId||item.postId)&&communityHub?.focusTarget){
-                    setTimeout(()=>communityHub.focusTarget({channelId:item.channelId,postId:item.postId}),120);
+                if(item.module==='community'&&communityHub?.focusTarget){
+                    if(item.channelId||item.postId){
+                        setTimeout(()=>communityHub.focusTarget({channelId:item.channelId,postId:item.postId}),120);
+                    }else if(item.category==='alerts'||['outbreak','advisory','announcement'].includes(item.kind)){
+                        setTimeout(()=>communityHub.focusTarget({section:'notices'}),120);
+                    }
                 }
             }
         });
@@ -1257,7 +1262,7 @@
                 });
                 announcements = (response.rows || []).filter(r => r.isActive !== false);
             }
-            announcements = announcements.filter(r => matchUserBarangay(parseAnnouncementBrgy(r).barangay));
+            announcements = announcements.filter(r => r.category === 'outbreak' || r.category === 'advisory' || r.isOutbreak || matchUserBarangay(parseAnnouncementBrgy(r).barangay));
             if (!announcements.length) {
                 container.innerHTML = '<p class="CV_OWNER_ANNOUNCE_EMPTY">No official announcements for your barangay at this time.</p>';
                 return;

@@ -216,7 +216,7 @@
         const raw=String(n?.body||'');
         const m=raw.match(BRGY_TAG_RE);
         return {...n,barangay:String(n?.barangay||(m?m[1]:'')||'').trim(),body:m?raw.replace(BRGY_TAG_RE,''):raw};
-      }).filter(n=>admin||!n.barangay||typeof window.CityVetMatchBarangay!=='function'||window.CityVetMatchBarangay(n.barangay));
+      }).filter(n=>admin||n.category==='outbreak'||n.category==='advisory'||!n.barangay||typeof window.CityVetMatchBarangay!=='function'||window.CityVetMatchBarangay(n.barangay));
     }
     if(admin&&staffRoles.size<=1){
       api.operate('listUsers').then(res=>{for(const u of res?.users||[])if(u.$id&&u.effectiveRole)staffRoles.set(u.$id,u.effectiveRole);}).catch(()=>{});
@@ -255,6 +255,7 @@
      else await renderFeed(silent);
      const errBanner=container.querySelector('#communityNotice.error');
      if(errBanner&&!errBanner.hidden)message('');
+     window.CityVetUI?.upgrade(container);
      scroller.scrollTop=scrollTop;
      hydrateImages();hydrateAvatars();
      const openCommentsModal=document.querySelector('.COMM_MODAL[data-comments-post-id]');
@@ -298,7 +299,7 @@
     window.CityVetUI?.enhancePagination(container);
   }
   function bindSearch(){const input=container.querySelector('#communitySearchInput');if(!input)return;input.addEventListener('keydown',async e=>{if(e.key==='Enter'){e.preventDefault();searchQuery=input.value.trim();if(searchQuery.length<2){message('Enter at least 2 characters.');return;}section='search';await refresh();}});}
-  async function renderSearch(q){const data=await action('Search',{query:q});container.innerHTML=header('Search results',`Matches for “${q}”`,button('Back to Community','feed'))+`<div id="communityNotice" hidden></div><div class="COMM_LAYOUT"><aside class="COMM_SIDEBAR"><h2>Channels</h2>${data.channels?.length?data.channels.map(channelCard).join(''):blank('No matching channels.')}</aside><div class="COMM_MAIN"><h2>Discussions</h2>${data.posts?.length?data.posts.map(p=>postCard(p,true)).join(''):blank('No matching public or accessible discussions.')}</div></div>`;}
+  async function renderSearch(q){const data=await action('Search',{query:q});container.innerHTML=header('Search results',`Matches for “${q}”`,button('Back to Community','feed'))+`<div id="communityNotice" hidden></div><div class="COMM_LAYOUT"><aside class="COMM_SIDEBAR"><h2>Channels</h2>${data.channels?.length?data.channels.map(channelCard).join(''):blank('No matching channels.')}</aside><div class="COMM_MAIN"><h2>Discussions</h2>${data.posts?.length?`<div class="COMM_POST_LIST">${data.posts.map(p=>postCard(p,true)).join('')}</div>`:blank('No matching public or accessible discussions.')}</div></div>`;}
   async function renderChannel(channelId){const data=await action('Channel',{channelId});if(!active)return;const c=data.channel;selected=c.id;section='channel';const canWrite=c.canPost!==undefined?Boolean(c.canPost):((admin||officer||(owner&&data.verified))&&c.canRead);
     const meta=privacyMeta(c.privacy);
     const privacyBtn=admin?button(fa('sliders')+' Visibility & rules','changeVisibility','',''):c.isCreator?button(c.privacy==='public'?'Make private':'Make public','togglePrivacy','',''):'';
@@ -531,9 +532,11 @@
     }catch(x){message(handlerErr(x));}
   });
   let debounce;function search(value){if(!active||viewMode==='officer-notices')return;clearTimeout(debounce);searchQuery=String(value||'').trim();debounce=setTimeout(()=>{if(searchQuery.length>=2){section='search';refresh(true);}else if(section==='search'){section='feed';refresh(true);}},280);}
-  async function focusTarget({channelId,postId}={}){
+  async function focusTarget({channelId,postId,section:targetSection}={}){
     active=true;viewMode='community';
-    if(channelId){selected=channelId;section='channel';}else{section='feed';}
+    if(targetSection==='notices'){selected=null;section='notices';}
+    else if(channelId){selected=channelId;section='channel';}
+    else{section='feed';}
     await refresh(true);
     if(postId){try{await showComments(postId);}catch{}}
   }

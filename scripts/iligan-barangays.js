@@ -502,8 +502,11 @@ function getSectionState(sectionKey,defaultPageSize){
 function buildSectionKey(el,indexFallback=0){
   if(el.dataset.paginateId)return el.dataset.paginateId;
   if(el.id)return 'id:'+el.id;
-  const section=el.closest('.CV49_MODULE_SECTION,.CV_SECTION,.CV411_ADMIN_VERIFICATION,.P4_SIDE_CARD,.COMM_DISCUSSIONS,.COMM_MAIN');
-  const heading=section?.querySelector('h2,h3,h4')?.textContent?.trim()||el.previousElementSibling?.querySelector?.('h2,h3,h4')?.textContent?.trim()||el.previousElementSibling?.textContent?.trim()?.slice(0,40)||'';
+  const section=el.closest('.CV49_MODULE_SECTION,.CV_SECTION,.CV411_ADMIN_VERIFICATION,.P4_SIDE_CARD,.P46_MISSING_SECTION,.COMM_DISCUSSIONS,.COMM_MAIN');
+  const cleanHeading=s=>String(s||'').replace(/\(\s*\d+\s*\)/g,'').replace(/\b\d+\b/g,'').replace(/\s+/g,' ').trim();
+  const tableCols=el.classList.contains('CV_TABLE_WRAP')?[...el.querySelectorAll('thead th')].map(th=>(th.textContent||'').trim()).filter(Boolean).join('|'):'';
+  const rawHeading=section?.querySelector('h2,h3,h4')?.textContent||el.previousElementSibling?.querySelector?.('h2,h3,h4')?.textContent||tableCols||(!el.previousElementSibling?.matches?.('.CV_STATS,.P4_SUMMARY_GRID')?el.previousElementSibling?.textContent?.slice(0,40):'')||'';
+  const heading=cleanHeading(rawHeading);
   const mod=document.querySelector('#sideNav .is-active')?.dataset?.module||'view';
   return `${mod}:${el.className}:${heading||indexFallback}`;
 }
@@ -521,9 +524,13 @@ function extractFiltersForContainer(el,items,kind){
       items.forEach(tr=>{
         const cell=tr.children[colIdx];
         if(!cell)return;
-        const pill=cell.querySelector('.CV_PILL,.P4_STATUS');
-        const val=((pill?pill.textContent:cell.textContent)||'').trim();
-        if(val&&val!=='—'&&val.length<=45)values.add(val);
+        const pills=[...cell.querySelectorAll('.CV_PILL,.P4_STATUS')].map(p=>(p.textContent||'').trim()).filter(Boolean);
+        if(pills.length){
+          pills.forEach(val=>{if(val&&val!=='—'&&val.length<=45)values.add(val);});
+        }else{
+          const val=(cell.textContent||'').trim();
+          if(val&&val!=='—'&&val.length<=45)values.add(val);
+        }
       });
       if(/^record$/i.test(hText)){values.add('Vaccination');values.add('Treatment');}
       if(values.size>=1&&values.size<=45){
@@ -533,9 +540,12 @@ function extractFiltersForContainer(el,items,kind){
           options:[...values].sort((a,b)=>a.localeCompare(b)),
           match:(tr,selectedVal)=>{
             const cell=tr.children[colIdx];
-            const pill=cell?.querySelector('.CV_PILL,.P4_STATUS');
-            const val=((pill?pill.textContent:cell?.textContent)||'').trim();
-            return val.toLowerCase()===selectedVal.toLowerCase();
+            if(!cell)return false;
+            const target=selectedVal.toLowerCase();
+            const pills=[...cell.querySelectorAll('.CV_PILL,.P4_STATUS')].map(p=>(p.textContent||'').trim()).filter(Boolean);
+            if(pills.length)return pills.some(val=>val.toLowerCase()===target);
+            const val=(cell.textContent||'').trim();
+            return val.toLowerCase()===target;
           }
         });
       }
@@ -545,7 +555,9 @@ function extractFiltersForContainer(el,items,kind){
 
   if(kind==='pet-directory'||kind==='pet-grid'){
     const statuses=new Set(),speciesSet=new Set(['Dog','Cat']),barangays=new Set();
+    let hasMissing=false;
     items.forEach(card=>{
+      if(card.classList.contains('is-missing')||card.classList.contains('P46_PET_MISSING'))hasMissing=true;
       const st=(card.dataset.status||card.querySelector('.CV_PILL,.P4_STATUS')?.textContent||'').trim();
       if(st)statuses.add(st);
       const sp=(card.dataset.species||card.querySelector('.P4_PET_FACT')?.textContent||'').trim();
@@ -558,12 +570,16 @@ function extractFiltersForContainer(el,items,kind){
       const brgy=(card.dataset.barangay||card.querySelector('.P4_PET_BARANGAY')?.textContent||card.querySelector('div > span')?.textContent||'').trim();
       if(brgy&&!brgy.includes('QR')&&!brgy.includes('CVH-')&&brgy.length<=40)barangays.add(brgy);
     });
+    if(hasMissing)statuses.add('Missing');
     if(statuses.size>=1){
       filters.push({
         key:'status',
         label:'Status',
         options:[...statuses],
         match:(card,val)=>{
+          if(val.toLowerCase()==='missing'){
+            if(card.classList.contains('is-missing')||card.classList.contains('P46_PET_MISSING'))return true;
+          }
           const st=(card.dataset.status||card.querySelector('.CV_PILL,.P4_STATUS')?.textContent||'').trim();
           return st.toLowerCase()===val.toLowerCase();
         }
@@ -670,7 +686,7 @@ function extractFiltersForContainer(el,items,kind){
       key:'species',
       label:'Species',
       options:['Dog','Cat'],
-      match:(card,val)=>(card.dataset.species||'').toLowerCase()===val.toLowerCase()||card.textContent.toLowerCase().includes(val.toLowerCase())
+      match:(card,val)=>card.dataset.species?card.dataset.species.toLowerCase()===val.toLowerCase():card.textContent.toLowerCase().includes(val.toLowerCase())
     });
     filters.push({
       key:'housing',
@@ -817,9 +833,13 @@ function setupPaginatedContainer(el,cfg){
     allItems.forEach(item=>{
       const show=visibleSet.has(item);
       item.hidden=!show;
-      item.style.display=show?'':'none';
-      if(show)item.removeAttribute('data-cv-page-hidden');
-      else item.setAttribute('data-cv-page-hidden','1');
+      if(show){
+        item.style.removeProperty('display');
+        item.removeAttribute('data-cv-page-hidden');
+      }else{
+        item.style.setProperty('display','none','important');
+        item.setAttribute('data-cv-page-hidden','1');
+      }
     });
 
     if(total===0&&allItems.length>0){
