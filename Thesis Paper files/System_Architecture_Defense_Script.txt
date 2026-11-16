@@ -1,0 +1,114 @@
+====================================================================
+CITYVETHUB FINAL DEFENSE - SYSTEM ARCHITECTURE SPEAKING SCRIPT
+Slide 9 | Figure 3.3: Three-Tier Architecture, Zero-Trust Gateway & Geospatial Services
+====================================================================
+
+--------------------------------------------------------------------
+OPTION 1: STANDARD DEFENSE SCRIPT (~60-75 SECONDS)
+--------------------------------------------------------------------
+
+Moving on to Slide 9, Figure 3.3 illustrates the System Architecture
+of CityVetHub, which follows a Three-Tier Architecture combined with a
+Zero-Trust Serverless Gateway and Geospatial Services.
+
+[Gesture to the three cards on the right]
+At a high level, the system is divided into three layers:
+
+- Tier 1 is the Presentation Layer:
+  We built a responsive Web Portal and Public QR Passport page using
+  HTML5, CSS3, and Vanilla JavaScript, paired with a React Native and
+  Expo Mobile Application for on-the-go access.
+
+- Tier 2 is our Zero-Trust Application Layer:
+  Instead of trusting client devices to write directly to sensitive
+  tables, all privileged actions are routed through our
+  "cityvethub-operations" serverless backend function. It validates the
+  user's JWT session token, enforces strict Role-Based Access Control
+  (RBAC) for Admins, Field Officers, and Pet Owners, prevents duplicate
+  submissions using SHA-256 locks, and reserves official CVO registry
+  IDs atomically.
+
+- Tier 3 is the Data and Geospatial Layer:
+  Powered by Appwrite Cloud, it manages 27 normalized database tables
+  and isolated media storage (cityvethub-media), integrated with
+  Leaflet, OpenStreetMap, Nominatim, and Iligan City Barangay GeoJSON
+  boundaries.
+
+[Gesture from left to right across the main diagram]
+Looking at the diagram from left to right, you can see how data flows
+through the ecosystem:
+
+1. Inputs & Data (Green):
+   Field data enters the system in two main ways -- QR Code scanning
+   from digital pet passports and GPS coordinates from geotagged
+   incident reports.
+
+2. Spatial Surveillance Engine (Purple):
+   Incoming GPS coordinates are processed using DBSCAN (Density-Based
+   Spatial Clustering) to detect case clusters and KDE (Kernel Density
+   Estimation) to render real-time disease heatmaps exclusively for
+   CVO Administrators and Field Officers.
+
+3. Appwrite Cloud BaaS (Yellow):
+   Acts as the central hub -- handling authentication, storing records
+   across our 27 tables, and pushing bi-directional real-time updates
+   to connected clients.
+
+4. Client Applications & Role-Based Users (Blue & Gray):
+   Finally, access is strictly tailored by role:
+   - CVO Administrators manage verifications, outbreak declarations,
+     and analytics on the web.
+   - Field Officers log vaccinations, scan pet QR codes, and triage
+     cases in the field.
+   - Pet Owners manage their pets, adoptions, community posts, and
+     incident reports without exposing raw outbreak heatmaps to the
+     general public.
+
+
+--------------------------------------------------------------------
+OPTION 2: SHORT / TIME-SAVER SCRIPT (~30-40 SECONDS)
+--------------------------------------------------------------------
+
+Slide 9 shows CityVetHub's Three-Tier System Architecture.
+
+On the front end (Tier 1), we have a Vanilla JavaScript Web Portal and
+a React Native Expo Mobile App serving three roles: CVO
+Administrators, Field Officers, and Pet Owners.
+
+In the middle (Tier 2), we enforce a Zero-Trust Gateway using our
+cityvethub-operations Appwrite serverless function. Every privileged
+action verifies the user's JWT and role permissions on the server before
+touching the database.
+
+On the back end (Tier 3), Appwrite Cloud manages 27 normalized tables
+and media storage with real-time sync, while our Spatial Surveillance
+Engine uses DBSCAN clustering and KDE heatmaps over Iligan City's 44
+barangay GeoJSON boundaries to turn citizen GPS reports into actionable
+outbreak intelligence for CVO staff.
+
+
+--------------------------------------------------------------------
+LIKELY PANELIST QUESTIONS & QUICK ANSWERS
+--------------------------------------------------------------------
+
+Q1: Why do you call Tier 2 a "Zero-Trust Application Layer"?
+A:  Because the web and mobile clients are never trusted to modify
+    official records directly. Even if a user manipulates the frontend,
+    every write request goes through cityvethub-operations, which
+    independently verifies the user's x-appwrite-user-jwt token and
+    checks their server-side team membership (cityvethub-admins or
+    cityvethub-field-officers) before executing any database update.
+
+Q2: Why are citizens restricted from seeing the raw spatial heatmap?
+A:  Citizens can submit geotagged disease reports and receive official
+    CVO outbreak advisories for their barangay, but raw unverified
+    cluster heatmaps are restricted to CVO Admins and Field Officers so
+    unconfirmed reports do not cause public panic before veterinary
+    verification.
+
+Q3: What is the difference between DBSCAN and KDE in your Spatial
+    Surveillance Engine?
+A:  KDE (Kernel Density Estimation) creates the smooth visual intensity
+    heatmap showing concentration of cases, while DBSCAN groups nearby
+    GPS points into distinct outbreak clusters while filtering out
+    isolated noise.
